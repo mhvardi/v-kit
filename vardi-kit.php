@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Vardi Kit
  * Description:       A collection of professional and SEO-friendly widgets for Elementor by Vardi Collection.
- * Version:           10.0.1 (Stable Path & Load Architecture)
+ * Version:           10.0.2 (Stable Path & Load Architecture)
  * Author:            محمد وردی
  * Author URI:        https://vardi.ir/
  * Text Domain:       vardi-kit
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly.
 }
 
-define( 'VARDI_KIT_VERSION', '10.0.1' );
+define( 'VARDI_KIT_VERSION', '10.0.2' );
 define( 'VARDI_KIT_DB_VERSION', '1.1' );
 define( 'VARDI_KIT_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 define( 'VARDI_KIT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

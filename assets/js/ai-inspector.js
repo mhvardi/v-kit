@@ -4,6 +4,17 @@
     const config = window.vardiAiInspector || {};
     if (!config.nonce || !config.ajaxUrl) return;
 
+    function formatMessage(msg){
+        if (!msg) return 'پاسخ نامشخص از سرور دریافت شد.';
+        if (typeof msg === 'string') return msg;
+        if (msg.message) return msg.message;
+        if (msg.error) return msg.error;
+        if (msg.responseJSON && msg.responseJSON.data) return formatMessage(msg.responseJSON.data);
+        if (msg.data && msg.data.message) return msg.data.message;
+        if (typeof msg === 'object') return JSON.stringify(msg, null, 2);
+        return String(msg);
+    }
+
     function createModal(){
         if ($('.vardi-ai-overlay').length) return $('.vardi-ai-overlay');
         const overlay = $('<div class="vardi-ai-overlay" style="display:none;"></div>');
@@ -37,12 +48,12 @@
                 if (response.success) {
                     renderAnalysis(body, response.data || {});
                 } else {
-                    body.html('<div class="notice notice-error"><p>' + (response.data || 'خطا در دریافت پاسخ از AI') + '</p></div>');
+                    body.html('<div class="notice notice-error"><p>' + formatMessage(response.data || 'خطا در دریافت پاسخ از AI') + '</p></div>');
                 }
-            }).fail(function(){
+            }).fail(function(xhr){
                 progress.hide();
                 button.prop('disabled', false);
-                body.html('<div class="notice notice-error"><p>درخواست به سرور با خطا مواجه شد.</p></div>');
+                body.html('<div class="notice notice-error"><p>' + formatMessage(xhr) + '</p></div>');
             });
         });
         return overlay;
@@ -123,7 +134,7 @@
         }
 
         if (data.raw) {
-            body.html('<div class="vardi-ai-section"><h4>گزارش AI</h4><div>' + data.raw + '</div></div>');
+            body.html('<div class="vardi-ai-section"><h4>گزارش AI</h4><div style="white-space:pre-wrap;">' + data.raw + '</div></div>');
         } else {
             body.html('<div class="notice notice-error"><p>پاسخی از AI دریافت نشد.</p></div>');
         }

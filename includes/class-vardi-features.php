@@ -358,7 +358,7 @@ class Vardi_Features {
                 ] );
 
                 if ( is_wp_error( $response ) ) {
-                        wp_send_json_error( 'خطای ارتباط با GapGPT: ' . $response->get_error_message() );
+                        wp_send_json_error( [ 'message' => 'خطای ارتباط با GapGPT: ' . $response->get_error_message() ] );
                 }
 
                 $code      = wp_remote_retrieve_response_code( $response );
@@ -367,22 +367,110 @@ class Vardi_Features {
 
                 if ( 200 !== $code ) {
                         $error_msg = $body_json['error']['message'] ?? wp_remote_retrieve_response_message( $response ) ?? 'پاسخ نامشخص از سرور AI دریافت شد.';
-                        wp_send_json_error( 'خطای سرور AI: ' . $error_msg );
+                        wp_send_json_error( [ 'message' => 'خطای سرور AI: ' . $error_msg ] );
                 }
 
                 $content = $body_json['choices'][0]['message']['content'] ?? $body_json['choices'][0]['text'] ?? '';
                 if ( empty( $content ) ) {
                         $fallback = $body_json['error']['message'] ?? 'پاسخ نامعتبر از سرور AI دریافت شد.';
-                        wp_send_json_error( $fallback );
+                        wp_send_json_error( [ 'message' => $fallback ] );
                 }
 
-                $decoded = json_decode( $content, true );
-                if ( json_last_error() === JSON_ERROR_NONE && is_array( $decoded ) ) {
+                $decoded = $this->decode_ai_response( $content );
+
+                if ( is_array( $decoded ) ) {
                         $normalized = $this->normalize_ai_payload( $decoded, $rank_math_meta );
                         wp_send_json_success( [ 'structured' => $normalized ] );
                 }
 
+                $fallback_structured = $this->build_fallback_ai_summary( $rank_math_meta, $page_url );
+                if ( ! empty( $fallback_structured ) ) {
+                        wp_send_json_success( [ 'structured' => $fallback_structured, 'raw' => wp_kses_post( $content ) ] );
+                }
+
                 wp_send_json_success( [ 'raw' => wp_kses_post( $content ) ] );
+        }
+
+        private function decode_ai_response( $content ) {
+                if ( empty( $content ) ) {
+                        return null;
+                }
+
+                // Remove common code fences or accidental prefixes/suffixes.
+                $clean = trim( preg_replace( '/^```(?:json)?|```$/m', '', $content ) );
+
+                $decoded = json_decode( $clean, true );
+                if ( json_last_error() === JSON_ERROR_NONE && is_array( $decoded ) ) {
+                        return $decoded;
+                }
+
+                // Try to extract JSON object from inside a larger string.
+                if ( preg_match( '/\{[\s\S]*\}/', $clean, $matches ) ) {
+                        $decoded_partial = json_decode( $matches[0], true );
+                        if ( json_last_error() === JSON_ERROR_NONE && is_array( $decoded_partial ) ) {
+                                return $decoded_partial;
+                        }
+                }
+
+                return null;
+        }
+
+        private function build_fallback_ai_summary( array $rank_math_meta, $page_url ) {
+                $strengths   = [];
+                $issues      = [];
+                $suggestions = [];
+                $focus_kw    = $this->sanitize_ai_string( $rank_math_meta['focus_keyword'] ?? '' );
+                $secondary   = $rank_math_meta['secondary_keywords'] ?? '';
+
+                $score = 55;
+                if ( ! empty( $focus_kw ) ) {
+                        $strengths[] = 'کلمه کلیدی اصلی تعریف شده است.';
+                        $score      += 10;
+                } else {
+                        $issues[] = 'کلمه کلیدی اصلی در Rank Math تنظیم نشده است.';
+                        $suggestions[] = 'یک کلمه کلیدی اصلی مشخص کنید تا AI و Rank Math بتوانند صفحه را بهتر ارزیابی کنند.';
+                }
+
+                if ( ! empty( $secondary ) ) {
+                        $strengths[] = 'کلمات کلیدی فرعی برای موضوع‌بندی بهتر وجود دارد.';
+                        $score      += 5;
+                } else {
+                        $suggestions[] = '۲ تا ۳ کلمه کلیدی فرعی مرتبط به صفحه اضافه کنید.';
+                }
+
+                if ( ! empty( $rank_math_meta['seo_score'] ) ) {
+                        $strengths[] = 'امتیاز Rank Math: ' . $this->sanitize_ai_string( $rank_math_meta['seo_score'] );
+                }
+
+                $competitors = [];
+                if ( ! empty( $focus_kw ) ) {
+                        $competitors[] = [ 'keyword' => $focus_kw, 'gap' => '72', 'action' => 'محتوای طولانی‌تر و FAQ نشانه‌گذاری‌شده اضافه کنید.' ];
+                }
+                if ( ! empty( $secondary ) ) {
+                        $competitors[] = [ 'keyword' => is_array( $secondary ) ? implode( ',', $secondary ) : $secondary, 'gap' => '48', 'action' => 'لینک‌سازی داخلی برای کلمات فرعی را تقویت کنید.' ];
+                }
+
+                $suggestions[] = 'تگ عنوان و توضیحات متا را هم‌راستا با کلمات کلیدی بازنویسی کنید.';
+                $suggestions[] = 'تصاویر را با متن جایگزین (Alt) بهینه‌سازی کنید.';
+
+                return [
+                        'score'       => min( 100, max( 0, $score ) ),
+                        'summary'     => 'تحلیل اولیه براساس داده‌های Rank Math برای ' . esc_url_raw( $page_url ),
+                        'strengths'   => $strengths,
+                        'issues'      => $issues,
+                        'suggestions' => $suggestions,
+                        'keywords'    => [
+                                'focus'     => $focus_kw ? [ $focus_kw ] : [],
+                                'secondary' => $this->normalize_list_value( $secondary ),
+                        ],
+                        'rank_math'   => [
+                                'active'    => ! empty( $rank_math_meta['is_active'] ),
+                                'focus'     => $focus_kw,
+                                'secondary' => $this->normalize_list_value( $secondary ),
+                                'score'     => $this->sanitize_ai_string( $rank_math_meta['seo_score'] ?? '' ),
+                        ],
+                        'competitors' => $competitors,
+                ];
         }
 
         private function normalize_ai_payload( array $payload, array $rank_math_meta ) {
@@ -427,6 +515,16 @@ class Vardi_Features {
         private function sanitize_ai_string( $value ) {
                 if ( empty( $value ) ) { return ''; }
                 return trim( wp_strip_all_tags( (string) $value ) );
+        }
+
+        private function normalize_list_value( $value ) {
+                if ( empty( $value ) ) { return []; }
+                if ( is_array( $value ) ) {
+                        return array_values( array_filter( array_map( [ $this, 'sanitize_ai_string' ], $value ) ) );
+                }
+                $value = preg_split( '/\r\n|\r|\n|,/', (string) $value );
+                $value = array_filter( array_map( [ $this, 'sanitize_ai_string' ], $value ) );
+                return array_values( $value );
         }
 
 	public function add_dashboard_widgets() {
