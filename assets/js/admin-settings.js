@@ -52,6 +52,87 @@ jQuery(function ($) {
     }
 
     // --- **NEW**: Code for Automatic Pattern Tab (Admin/Customer tabs) ---
+    function hydrateStatusCard($card) {
+        if ($card.data('hydrated')) { return; }
+
+        var nonce   = $card.data('fetchNonce');
+        var context = $card.data('context');
+        var status  = $card.data('status');
+
+        if (!nonce || !context || !status) {
+            $card.data('hydrated', true);
+            return;
+        }
+
+        $card.addClass('is-loading');
+
+        $.post(ajaxurl, {
+            action: 'vardi_kit_get_status_config',
+            nonce: nonce,
+            context: context,
+            status: status
+        }, function(response) {
+            if (response && response.success && response.data) {
+                applyStatusData($card, response.data);
+            }
+
+            $card.data('hydrated', true);
+            $card.removeClass('is-loading');
+        }).fail(function() {
+            $card.removeClass('is-loading');
+        });
+    }
+
+    function ensureTokenRows(wrapper, total) {
+        var addBtn = wrapper.find('.add-pattern-token-button');
+        while (wrapper.find('.vardi-token-row').length < total) {
+            addBtn.trigger('click');
+        }
+    }
+
+    function applyStatusData($card, data) {
+        if (typeof data.sender !== 'undefined' && $card.data('senderInput')) {
+            $card.find('input[name="' + $card.data('senderInput') + '"]').val(data.sender);
+        }
+
+        if (typeof data.template !== 'undefined' && $card.data('templateInput')) {
+            $card.find('[name="' + $card.data('templateInput') + '"]').val(data.template);
+        }
+
+        if ($card.data('patternInput')) {
+            var patternField = $card.find('input[name="' + $card.data('patternInput') + '"]');
+            if (patternField.length) {
+                patternField.val(data.pattern_id || '');
+            }
+        }
+
+        if (Array.isArray(data.tokens) && $card.data('tokenInputBase')) {
+            var wrapper = $card.find('.vardi-token-wrapper');
+            ensureTokenRows(wrapper, data.tokens.length);
+            wrapper.find('.vardi-token-row input').each(function(index) {
+                if (typeof data.tokens[index] !== 'undefined') {
+                    $(this).val(data.tokens[index]);
+                }
+            });
+        }
+
+        if (data.mode) {
+            var modeRadio = $card.find('.vardi-mode-radio[value="' + data.mode + '"]');
+            if (modeRadio.length) {
+                modeRadio.prop('checked', true);
+                switchMode(modeRadio, false);
+            }
+        }
+    }
+
+    function openStatusCard($card, animate) {
+        var toggle = $card.find('.vardi-status-toggle');
+        if (!toggle.prop('checked')) {
+            toggle.prop('checked', true);
+        }
+        toggleStatusBody(toggle, animate);
+        hydrateStatusCard($card);
+    }
     function toggleStatusBody($toggle, animate) {
         var targetId = $toggle.data('target');
         var body = $('#' + targetId);
@@ -104,19 +185,24 @@ jQuery(function ($) {
 
     $('.vardi-status-toggle').on('change', function() {
         toggleStatusBody($(this), true);
+        hydrateStatusCard($(this).closest('.vardi-status-card'));
     });
 
     // Expand immediately when clicking the whole status head (no extra clicks)
     $('.vardi-status-head').on('click', function(e) {
-        // If user clicks on the header container, force enabling + opening
         if ($(e.target).is('input')) { return; }
-        var checkbox = $(this).find('.vardi-status-toggle');
-        checkbox.prop('checked', true);
-        toggleStatusBody(checkbox, true);
+        openStatusCard($(this).closest('.vardi-status-card'), true);
+    });
+
+    $('.vardi-status-card').on('click', function(e) {
+        if ($(e.target).is('input, textarea, button, select')) { return; }
+        openStatusCard($(this), true);
     });
 
     $('.vardi-status-body').on('change', '.vardi-mode-radio', function() {
-        switchMode($(this), true);
+        var radio = $(this);
+        openStatusCard(radio.closest('.vardi-status-card'), true);
+        switchMode(radio, true);
     });
 
     $('.vardi-status-toggle').each(function() { toggleStatusBody($(this), false); });
