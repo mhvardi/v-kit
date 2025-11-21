@@ -13,6 +13,7 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
         public static function init() {
             add_action( 'admin_init', array( __CLASS__, 'register_settings' ) );
             add_action( 'wp_ajax_vardi_kit_send_manual_sms', array( __CLASS__, 'handle_manual_sms_sending' ) );
+            add_action( 'wp_ajax_vardi_kit_get_status_config', array( __CLASS__, 'handle_status_fetch' ) );
             add_action( 'admin_notices', array( __CLASS__, 'show_save_notice' ) );
         }
 
@@ -62,6 +63,45 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
             $result = $api->send( $recipients, $message );
             if ( $result['success'] ) { wp_send_json_success( 'پیامک با موفقیت برای ارسال در صف قرار گرفت. پیام سرور: ' . esc_html($result['message']) );
             } else { wp_send_json_error( 'خطا در ارسال: ' . esc_html($result['message'] ?? 'پاسخ نامشخص از سرور.') ); }
+        }
+
+        public static function handle_status_fetch() {
+            $nonce   = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+            $context = isset( $_POST['context'] ) ? sanitize_key( wp_unslash( $_POST['context'] ) ) : '';
+            $status  = isset( $_POST['status'] ) ? sanitize_key( wp_unslash( $_POST['status'] ) ) : '';
+
+            if ( ! wp_verify_nonce( $nonce, 'vardi_kit_status_nonce' ) ) { wp_send_json_error( 'خطای امنیتی.' ); }
+            if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error( 'شما دسترسی لازم برای این کار را ندارید.' ); }
+            if ( empty( $context ) || empty( $status ) ) { wp_send_json_error( 'اطلاعات کافی برای دریافت تنظیمات وجود ندارد.' ); }
+
+            $option_key = ( 'admin' === $context ) ? self::OPTION_ADMIN : ( ( 'customer' === $context ) ? self::OPTION_CUSTOMER : '' );
+            if ( empty( $option_key ) ) { wp_send_json_error( 'زمینه نامعتبر است.' ); }
+
+            $gateway_options = get_option( self::OPTION_GATEWAY, array() );
+            $options         = get_option( $option_key, array() );
+            $pattern_options = get_option( self::OPTION_PATTERN, array() );
+
+            $template_field   = ( 'admin' === $context ) ? 'admin_sms_template' : 'customer_sms_template';
+            $pattern_id_field = ( 'admin' === $context ) ? 'admin_pattern_id' : 'customer_pattern_id';
+            $token_field      = ( 'admin' === $context ) ? 'admin_pattern_tokens' : 'customer_pattern_tokens';
+            $sender_field     = ( 'admin' === $context ) ? 'admin_sender_numbers' : 'customer_sender_numbers';
+
+            $modes           = $options['status_modes'] ?? [];
+            $text_value      = $options[ $template_field ][ $status ] ?? '';
+            $sender_value    = $options[ $sender_field ][ $status ] ?? ( $gateway_options['sender_number'] ?? '' );
+            $pattern_value   = $pattern_options[ $pattern_id_field ][ $status ] ?? '';
+            $token_values    = array_map( 'sanitize_text_field', (array) ( $pattern_options[ $token_field ][ $status ] ?? [] ) );
+            $mode            = $modes[ $status ] ?? ( ! empty( $pattern_value ) ? 'pattern' : 'text' );
+
+            wp_send_json_success(
+                [
+                    'mode'       => $mode,
+                    'sender'     => $sender_value,
+                    'template'   => $text_value,
+                    'pattern_id' => $pattern_value,
+                    'tokens'     => $token_values,
+                ]
+            );
         }
 
 
@@ -125,6 +165,7 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
             ?>
             <form action="options.php" method="post">
                 <?php settings_fields( 'vardi_kit_sms_admin_group' ); ?>
+                <input type="hidden" class="vardi-status-nonce" value="<?php echo esc_attr( wp_create_nonce( 'vardi_kit_status_nonce' ) ); ?>">
                 <h3>پیامک مدیر</h3>
                 <p class="description">ارسال پیامک عادی یا پترن برای مدیران با انتخاب وضعیت‌های فعال و نوع ارسال.</p>
 
@@ -155,6 +196,7 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
             ?>
             <form action="options.php" method="post">
                 <?php settings_fields( 'vardi_kit_sms_customer_group' ); ?>
+                <input type="hidden" class="vardi-status-nonce" value="<?php echo esc_attr( wp_create_nonce( 'vardi_kit_status_nonce' ) ); ?>">
                 <h3>پیامک کاربران</h3>
                 <p class="description">ظاهر و تجربه کاربری مشابه بخش مدیر، با این تفاوت که پیامک‌ها برای مشتریان ارسال می‌شود.</p>
 
@@ -213,6 +255,7 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
             $pattern_id_field = ( 'admin' === $context ) ? 'admin_pattern_id' : 'customer_pattern_id';
             $token_field      = ( 'admin' === $context ) ? 'admin_pattern_tokens' : 'customer_pattern_tokens';
             $sender_field     = ( 'admin' === $context ) ? 'admin_sender_numbers' : 'customer_sender_numbers';
+            $status_nonce     = wp_create_nonce( 'vardi_kit_status_nonce' );
 
             $selected_statuses = $options[ $status_field ] ?? [];
             $modes             = $options['status_modes'] ?? [];
@@ -230,7 +273,7 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
 
                 $body_id = 'vardi-status-body-' . esc_attr( $context . '-' . $template_key );
                 ?>
-                <div class="vardi-status-card" data-status="<?php echo esc_attr( $template_key ); ?>">
+                <div class="vardi-status-card" data-status="<?php echo esc_attr( $template_key ); ?>" data-status-slug="<?php echo esc_attr( $slug ); ?>" data-context="<?php echo esc_attr( $context ); ?>" data-fetch-nonce="<?php echo esc_attr( $status_nonce ); ?>" data-sender-input="<?php echo esc_attr( $option_key . '[' . $sender_field . '][' . $template_key . ']' ); ?>" data-template-input="<?php echo esc_attr( $option_key . '[' . $template_field . '][' . $template_key . ']' ); ?>" data-pattern-input="<?php echo esc_attr( self::OPTION_PATTERN . '[' . $pattern_id_field . '][' . $template_key . ']' ); ?>" data-token-input-base="<?php echo esc_attr( self::OPTION_PATTERN . '[' . $token_field . '][' . $template_key . '][]' ); ?>">
                     <div class="vardi-status-head">
                         <label><input type="checkbox" class="vardi-status-toggle" data-target="<?php echo esc_attr( $body_id ); ?>" name="<?php echo esc_attr( $option_key ); ?>[<?php echo esc_attr( $status_field ); ?>][]" value="<?php echo esc_attr( $slug ); ?>" <?php checked( $is_enabled ); ?>> <?php echo esc_html( $name ); ?></label>
                         <span class="description">فعال → نمایش فیلدها</span>
