@@ -1,0 +1,108 @@
+/* ==========================================================================
+   4. Modern Login Page Styles
+   ========================================================================== */
+body.login {
+    background: #f1f5f9;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#login {
+    width: 900px !important;
+    max-width: 90vw !important;
+    padding: 0 !important;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    display: flex;
+}
+
+.login-form-container, .login-branding-container {
+    width: 50%;
+    padding: 40px;
+}
+
+.login-branding-container {
+    background: linear-gradient(135deg, #2c3e50, #1a2533);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+
+#login h1 {
+    margin-bottom: 20px;
+}
+
+#login h1 a, .login h1 a {
+    background-image: var(--vardi-login-logo-url);
+    background-size: contain;
+    width: 150px;
+    height: 70px;
+    background-position: center;
+    margin: 0 auto 20px auto;
+}
+
+.login-branding-container p {
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+.login-form-container {
+    background: #fff;
+}
+
+#loginform {
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    border: none;
+}
+
+#loginform .input, #loginform input[type="text"], #loginform input[type="password"] {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: none;
+    padding: 10px;
+    font-size: 16px;
+}
+
+#loginform .button.wp-hide-pw {
+    margin-top: 10px;
+}
+
+#loginform .submit .button {
+    width: 100%;
+    background: #34495e;
+    border: none;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 16px;
+    transition: background 0.3s ease;
+}
+
+#loginform .submit .button:hover {
+    background: #2c3e50;
+}
+
+#nav, #backtoblog {
+    padding: 0 20px;
+    text-align: center;
+}
+
+/* Responsive for mobile */
+@media (max-width: 782px) {
+    #login {
+        flex-direction: column;
+    }
+    .login-form-container, .login-branding-container {
+        width: 100%;
+    }
+    .login-branding-container {
+        padding: 30px 20px;
+    }
+}

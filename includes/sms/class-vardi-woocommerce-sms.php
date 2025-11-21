@@ -1,0 +1,262 @@
+<?php
+if ( ! defined( 'ABSPATH' ) ) exit;
+
+class Vardi_Woocommerce_SMS {
+
+	private static $_instance = null;
+	private $gateway_options;
+        private $admin_options;
+        private $customer_options;
+        private $pattern_options; // **NEW**: Holds pattern settings
+        private $gateway_sender = '';
+	public $api;
+	private $shortcode_mappings = [];
+
+	public static function get_instance() {
+		if ( is_null( self::$_instance ) ) {
+			self::$_instance = new self();
+		}
+		return self::$_instance;
+	}
+
+	private function __construct() {
+                $this->gateway_options  = get_option( 'vardi_kit_sms_gateway_options', [] );
+                $this->admin_options    = get_option( 'vardi_kit_sms_admin_options', [] );
+                $this->customer_options = get_option( 'vardi_kit_sms_customer_options', [] );
+                $this->pattern_options  = get_option( 'vardi_kit_sms_pattern_options', [] ); // **NEW**: Load pattern options
+                $this->gateway_sender   = $this->gateway_options['sender_number'] ?? '';
+
+		if ( empty( $this->gateway_options['enable_sms'] ) || empty( $this->gateway_options['api_key'] ) ) {
+			return;
+		}
+
+		$this->api = new Vardi_SMS_API_Client( $this->gateway_options );
+
+		add_action( 'woocommerce_order_status_changed', [ $this, 'trigger_sms_on_status_change' ], 10, 4 );
+		add_action( 'woocommerce_checkout_order_processed', [ $this, 'trigger_sms_on_new_order_processed' ], 10, 2 );
+
+		add_action( 'woocommerce_low_stock', [ $this, 'trigger_low_stock_sms' ] );
+		add_action( 'woocommerce_product_set_stock_status_outofstock', [ $this, 'trigger_out_of_stock_sms' ], 10, 3 );
+
+		if ( ! empty( $this->customer_options['enable_sms_opt_in_checkout'] ) ) {
+			add_action( 'woocommerce_after_order_notes', [ $this, 'add_sms_checkout_field' ] );
+			add_action( 'woocommerce_checkout_update_order_meta', [ $this, 'save_sms_checkout_field' ] );
+		}
+	}
+
+	public function trigger_sms_on_new_order_processed( $order_id, $posted_data ) {
+		$order = wc_get_order( $order_id );
+		if ($order) {
+			$this->send_order_sms_notifications( $order, 'new-order', 'wc-new-order' );
+		}
+	}
+
+	public function trigger_sms_on_status_change( $order_id, $old_status, $new_status, $order ) {
+		$this->send_order_sms_notifications( $order, $new_status, 'wc-' . $new_status );
+	}
+
+        private function send_order_sms_notifications( $order, $status_key, $full_status_key ) {
+                if( !$order instanceof WC_Order ) return;
+
+                $admin_modes              = $this->admin_options['status_modes'] ?? [];
+                $customer_modes           = $this->customer_options['status_modes'] ?? [];
+                $selected_admin_statuses   = $this->admin_options['admin_notif_statuses'] ?? [];
+                $selected_customer_statuses = $this->customer_options['customer_notif_statuses'] ?? [];
+                $admin_sender_numbers      = $this->admin_options['admin_sender_numbers'] ?? [];
+                $customer_sender_numbers   = $this->customer_options['customer_sender_numbers'] ?? [];
+
+                // --- Send to Admin ---
+                $admin_pattern_id        = $this->pattern_options['admin_pattern_id'][$status_key] ?? '';
+                $admin_tokens_shortcodes = $this->pattern_options['admin_pattern_tokens'][$status_key] ?? [];
+                $admin_mode              = $admin_modes[ $status_key ] ?? ( ! empty( $admin_pattern_id ) ? 'pattern' : 'text' );
+
+                if ( ! empty( $this->admin_options['enable_admin_sms'] ) && in_array( $full_status_key, $selected_admin_statuses, true ) ) {
+                        $admin_phones_raw = $this->admin_options['admin_mobiles'] ?? '';
+                        if ( ! empty( $admin_phones_raw ) ) {
+                                $admin_phones = array_map('trim', explode(',', $admin_phones_raw));
+                                if ( 'pattern' === $admin_mode && ! empty( $admin_pattern_id ) ) {
+                                        $final_tokens = [];
+                                        foreach ($admin_tokens_shortcodes as $shortcode) {
+                                                $final_tokens[] = $this->process_token_content($shortcode, $order);
+                                        }
+                                        foreach ($admin_phones as $phone) {
+                                                if (!empty($phone)) {
+                                                        $this->api->send_pattern($phone, $admin_pattern_id, $final_tokens);
+                                                }
+                                        }
+                                } else {
+                                        $message_template = $this->admin_options['admin_sms_template'][$status_key] ?? '';
+                                        if ( !empty($admin_phones) && !empty($message_template) ) {
+                                                $message = $this->process_token_content($message_template, $order);
+                                                $sender  = $admin_sender_numbers[$status_key] ?? $this->gateway_sender;
+                                                $this->api->send( $admin_phones, $message, $sender );
+                                        }
+                                }
+                        }
+                }
+
+                // --- Send to Customer ---
+                $opt_in_enabled = ! empty($this->customer_options['enable_sms_opt_in_checkout']);
+                $customer_opted_in = $order->get_meta('_sms_opt_in') === 'yes';
+
+                if ( !empty($this->customer_options['enable_customer_sms']) && ( !$opt_in_enabled || $customer_opted_in ) && in_array( $full_status_key, $selected_customer_statuses, true ) ) {
+                        $customer_phone = $order->get_billing_phone();
+                        if ( ! empty( $customer_phone ) ) {
+                                $pattern_id        = $this->pattern_options['customer_pattern_id'][$status_key] ?? '';
+                                $tokens_shortcodes = $this->pattern_options['customer_pattern_tokens'][$status_key] ?? [];
+                                $customer_mode     = $customer_modes[ $status_key ] ?? ( ! empty( $pattern_id ) ? 'pattern' : 'text' );
+
+                                if ( 'pattern' === $customer_mode && ! empty($pattern_id) ) {
+                                        $final_tokens = [];
+                                        foreach ($tokens_shortcodes as $shortcode) {
+                                                $final_tokens[] = $this->process_token_content($shortcode, $order);
+                                        }
+                                        $this->api->send_pattern($customer_phone, $pattern_id, $final_tokens);
+                                } else {
+                                        $message_template = $this->customer_options['customer_sms_template'][$status_key] ?? '';
+                                        if ( ! empty( $message_template ) ) {
+                                                $message = $this->process_token_content($message_template, $order);
+                                                $sender  = $customer_sender_numbers[$status_key] ?? $this->gateway_sender;
+                                                $this->api->send( [$customer_phone], $message, $sender );
+                                        }
+                                }
+                        }
+                }
+        }
+
+	/**
+	 * **FINAL FIX**: This function is rewritten to correctly process shortcodes.
+	 * It handles both single shortcodes (like '{name}') and templates containing multiple shortcodes.
+	 * Returns an empty string if the input is empty or only whitespace.
+	 * Returns an empty string if a single shortcode is not found (to prevent sending "{invalid_code}").
+	 */
+	private function process_token_content( $content, $order ) {
+		if ( ! $order instanceof WC_Order ) {
+			return ''; // Return empty string if order is invalid
+		}
+
+		$trimmed_content = trim($content ?? ''); // Ensure content is a string and trim whitespace
+
+		if ( empty($trimmed_content) ) {
+			return ''; // Return empty string if content is empty after trimming
+		}
+
+		// Generate or retrieve mappings for the current order
+		$order_id = $order->get_id();
+		if (!isset($this->shortcode_mappings[$order_id])) {
+			$this->shortcode_mappings[$order_id] = $this->get_shortcode_mappings($order);
+		}
+		$mappings = $this->shortcode_mappings[$order_id];
+
+		// Check if the content IS EXACTLY a single shortcode like {name}
+		if (preg_match('/^\{([a-zA-Z0-9_]+)\}$/', $trimmed_content, $matches)) {
+			$shortcode_key_full = $matches[0]; // e.g., {name}
+			// Return the direct value if the key exists, otherwise return an empty string.
+			return (string) ($mappings[$shortcode_key_full] ?? '');
+		} else {
+			// Otherwise, treat it as a template string and replace all occurrences
+			return str_replace(
+				array_keys($mappings),
+				array_values($mappings),
+				$trimmed_content
+			);
+		}
+	}
+
+
+	/**
+	 * Generates an array mapping shortcodes to their corresponding order values.
+	 */
+	private function get_shortcode_mappings($order) {
+		if (!$order instanceof WC_Order) return [];
+
+		$all_items = [];
+		$all_items_qty = [];
+		foreach ( $order->get_items() as $item ) {
+			$all_items[] = $item->get_name();
+			$all_items_qty[] = $item->get_name() . ' (تعداد: ' . $item->get_quantity() . ')';
+		}
+
+		$billing_country = $order->get_billing_country();
+		$billing_state = $order->get_billing_state();
+		$shipping_country = $order->get_shipping_country();
+		$shipping_state = $order->get_shipping_state();
+
+		return [
+			'{order_id}'         => $order->get_id(),
+			'{name}'             => $order->get_billing_first_name(),
+			'{last_name}'        => $order->get_billing_last_name(),
+			'{mobile}'           => $order->get_billing_phone(),
+			'{email}'            => $order->get_billing_email(),
+			'{status}'           => wc_get_order_status_name( $order->get_status() ),
+			'{all_items_qty}'    => implode( ' | ', $all_items_qty ),
+			'{all_items}'        => implode( '، ', $all_items ),
+			'{price}'            => wp_strip_all_tags( wc_price( $order->get_total() ) ),
+			'{transaction_id}'   => $order->get_transaction_id() ?? '',
+			'{payment_method}'   => $order->get_payment_method_title() ?? '',
+			'{description}'      => $order->get_customer_note() ?? '',
+			'{shipping_method}'  => $order->get_shipping_method() ?? '',
+			'{b_company}'        => $order->get_billing_company() ?? '',
+			'{b_first_name}'     => $order->get_billing_first_name() ?? '',
+			'{b_last_name}'      => $order->get_billing_last_name() ?? '',
+			'{b_country}'        => ($billing_country && isset(WC()->countries->get_countries()[$billing_country])) ? WC()->countries->get_countries()[$billing_country] : $billing_country,
+			'{b_state}'          => ($billing_country && $billing_state && isset(WC()->countries->get_states($billing_country)[$billing_state])) ? WC()->countries->get_states($billing_country)[$billing_state] : $billing_state,
+			'{b_city}'           => $order->get_billing_city() ?? '',
+			'{b_address_1}'      => $order->get_billing_address_1() ?? '',
+			'{b_postcode}'       => $order->get_billing_postcode() ?? '',
+			'{s_company}'        => $order->get_shipping_company() ?? '',
+			'{s_first_name}'     => $order->get_shipping_first_name() ?? '',
+			'{s_last_name}'      => $order->get_shipping_last_name() ?? '',
+			'{s_country}'        => ($shipping_country && isset(WC()->countries->get_countries()[$shipping_country])) ? WC()->countries->get_countries()[$shipping_country] : $shipping_country,
+			'{s_state}'          => ($shipping_country && $shipping_state && isset(WC()->countries->get_states($shipping_country)[$shipping_state])) ? WC()->countries->get_states($shipping_country)[$shipping_state] : $shipping_state,
+			'{s_city}'           => $order->get_shipping_city() ?? '',
+			'{s_address_1}'      => $order->get_shipping_address_1() ?? '',
+			'{s_postcode}'       => $order->get_shipping_postcode() ?? '',
+			'{post_tracking_url}' => get_post_meta( $order->get_id(), '_post_tracking_url', true ),
+			'{post_tracking_code}' => get_post_meta( $order->get_id(), '_post_tracking_code', true ),
+		];
+	}
+
+	// --- Stock SMS Functions (Complete and unchanged) ---
+	public function trigger_low_stock_sms( $product ) {
+		$template = $this->admin_options['low_stock_template'] ?? '';
+		$this->send_stock_sms($product, $template);
+	}
+
+	public function trigger_out_of_stock_sms( $product_id, $stock_status, $product ) {
+		if ( ! $product instanceof WC_Product ) {
+			$product = wc_get_product( $product_id );
+			if ( ! $product ) return;
+		}
+		if ($stock_status === 'outofstock') {
+			$template = $this->admin_options['out_of_stock_template'] ?? '';
+			$this->send_stock_sms($product, $template);
+		}
+	}
+
+	private function send_stock_sms( $product, $template ) {
+		if ( ! is_a( $product, 'WC_Product' ) || empty($template) ) return;
+		$mobiles_raw = $this->admin_options['low_stock_mobiles'] ?? ($this->admin_options['admin_mobiles'] ?? '');
+		if ( ! empty( $mobiles_raw ) ) {
+			$mobiles = array_map('trim', explode(',', $mobiles_raw));
+			$replacements = [ '{product_title}' => $product->get_name(), '{sku}' => $product->get_sku(), '{stock}' => $product->get_stock_quantity() ?? '0', ];
+			$message = str_replace( array_keys($replacements), array_values($replacements), $template );
+			$this->api->send( $mobiles, $message );
+		}
+	}
+
+	// --- Checkout Opt-in Functions (Complete and unchanged) ---
+	public function add_sms_checkout_field( $checkout ) {
+		echo '<div id="sms_opt_in_checkout_field">';
+		woocommerce_form_field( 'sms_opt_in', array( 'type' => 'checkbox', 'class' => array('input-checkbox'), 'label' => esc_html($this->customer_options['sms_opt_in_checkout_text'] ?? 'مایل هستم از وضعیت سفارش از طریق پیامک آگاه شوم.'), ), $checkout->get_value( 'sms_opt_in' ));
+		echo '</div>';
+	}
+
+	public function save_sms_checkout_field( $order_id ) {
+		if ( ! empty( $_POST['sms_opt_in'] ) ) {
+			update_post_meta( $order_id, '_sms_opt_in', 'yes' );
+		} else {
+			delete_post_meta( $order_id, '_sms_opt_in' );
+		}
+	}
+} 

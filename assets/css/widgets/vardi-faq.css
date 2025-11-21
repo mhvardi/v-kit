@@ -1,0 +1,96 @@
+/* Vardi Kit - FAQ / How-to Widget Styles (v5.0 - CSS-Only) */
+.vardi-faq-wrapper {
+    /* متغیرها از PHP خوانده می‌شوند */
+    --faq-animation-duration: 0.4s;
+    --faq-animation-easing: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.vardi-faq-item {
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+.vardi-faq-item:last-child {
+    margin-bottom: 0;
+}
+
+/* اینپوت مخفی */
+.vardi-faq-input {
+    display: none;
+}
+
+.vardi-faq-question {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    cursor: pointer;
+    transition: background-color 0.3s ease, color 0.3s ease;
+    position: relative;
+    z-index: 1;
+}
+
+.vardi-faq-title {
+    flex-grow: 1;
+    margin: 0;
+    padding: 0;
+}
+
+/* --- بخش آیکن (سلکتورها به input:checked آپدیت شدند) --- */
+.vardi-faq-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform var(--faq-animation-duration) var(--faq-animation-easing);
+    flex-shrink: 0;
+}
+
+.vardi-faq-icon i,
+.vardi-faq-icon svg {
+    transition: color 0.3s, fill 0.3s;
+}
+
+/* حالت جابجایی (Swap) */
+.vardi-faq-icon-swap .vardi-faq-icon-opened {
+    display: none;
+}
+.vardi-faq-input:checked + .vardi-faq-question .vardi-faq-icon-swap .vardi-faq-icon-opened {
+    display: inline-flex;
+}
+.vardi-faq-input:checked + .vardi-faq-question .vardi-faq-icon-swap .vardi-faq-icon-closed {
+    display: none;
+}
+.vardi-faq-input:checked + .vardi-faq-question .vardi-faq-icon-swap {
+    transform: none;
+}
+
+/* حالت چرخش (Rotate) */
+.vardi-faq-icon:not(.vardi-faq-icon-swap) .vardi-faq-icon-opened {
+    display: none;
+}
+.vardi-faq-icon:not(.vardi-faq-icon-swap) .vardi-faq-icon-closed {
+    display: inline-flex;
+}
+.vardi-faq-input:checked + .vardi-faq-question .vardi-faq-icon:not(.vardi-faq-icon-swap) {
+    transform: rotate(180deg);
+}
+/* --- پایان بخش آیکن --- */
+
+
+/* --- بخش انیمیشن (max-height) --- */
+.vardi-faq-answer-wrapper {
+    overflow: hidden;
+    max-height: 0;
+
+    /* انیمیشن نرم با استفاده از متغیرهای CSS */
+    transition: max-height var(--faq-animation-duration) var(--faq-animation-easing),
+    margin-top var(--faq-animation-duration) var(--faq-animation-easing);
+}
+
+/* جادوی انیمیشن: وقتی اینپوت چک می‌خورد، wrapper بعدی باز می‌شود */
+.vardi-faq-input:checked ~ .vardi-faq-answer-wrapper {
+    max-height: 2000px; /* یک عدد بزرگ برای ارتفاع */
+}
+
+.vardi-faq-answer {
+    padding: 0; /* پدینگ واقعی توسط کنترل‌های المنتور اضافه می‌شود */
+}

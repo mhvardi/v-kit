@@ -1,0 +1,82 @@
+/* Vardi Kit - SEO Content Box Styles (v3.2 - Stable Effects) */
+.seo-content-box {
+  --sc-blur-px: 8px;
+  --sc-gradient-rgb: 255, 255, 255; /* Default white gradient */
+  --sc-animation-duration: 0.5s;
+  --sc-animation-easing: ease-in-out;
+  position: relative;
+}
+
+.seo-content-box-text {
+  overflow: hidden;
+  transition: max-height var(--sc-animation-duration) var(--sc-animation-easing);
+}
+
+.seo-content-box-text.collapsed {
+  position: relative;
+}
+
+/* Base style for the overlay pseudo-element */
+.seo-content-box-text.collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 80px; /* Default height, overridden by Elementor control */
+  pointer-events: none;
+  transition: opacity 0.3s ease, backdrop-filter 0.3s ease, -webkit-backdrop-filter 0.3s ease;
+  /* Ensure it starts transparent if no effect is chosen */
+  background: transparent;
+  backdrop-filter: blur(0px);
+  -webkit-backdrop-filter: blur(0px);
+}
+
+/* === Modern Effect Logic === */
+
+/* 1. Gradient Only (Classic) */
+.seo-content-box[data-effect-type="gradient"] .seo-content-box-text.collapsed::after {
+  background: linear-gradient(180deg, rgba(var(--sc-gradient-rgb), 0) 0%, rgba(var(--sc-gradient-rgb), 1) 90%);
+}
+
+/* 2. Blur Only (Modern Frosted Glass) */
+.seo-content-box[data-effect-type="blur"] .seo-content-box-text.collapsed::after {
+  background-color: rgba(var(--sc-gradient-rgb), 0.1);
+  backdrop-filter: blur(var(--sc-blur-px));
+  -webkit-backdrop-filter: blur(var(--sc-blur-px));
+}
+
+/* 3. Gradient & Blur (Professional & Recommended) */
+.seo-content-box[data-effect-type="gradient_and_blur"] .seo-content-box-text.collapsed::after {
+  backdrop-filter: blur(var(--sc-blur-px));
+  -webkit-backdrop-filter: blur(var(--sc-blur-px));
+  
+  /* The mask creates the smooth fade-out effect for the blur */
+  mask-image: linear-gradient(180deg, transparent 0%, black 70%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, black 70%);
+}
+
+
+/* Toggle Button Styles (Unchanged) */
+.seo-content-toggle-wrapper {
+  display: flex;
+  flex-direction: column;
+  margin-top: 20px;
+  position: relative;
+  z-index: 2;
+}
+
+.seo-content-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  border-radius: 5px;
+  border: none;
+  text-decoration: none;
+  width: fit-content;
+  transition: all 0.2s ease;
+}
+.seo-toggle-icon { display: inline-flex; align-items: center; }
+.seo-toggle-type-text { background-color: transparent !important; border: none !important; box-shadow: none !important; padding: 5px !important; }
