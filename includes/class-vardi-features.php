@@ -98,10 +98,37 @@ class Vardi_Features {
 	}
 
         public function load_shamsi_date() {
-                $has_conflict = function_exists('wp_is_jalali') || class_exists('parsidate') || function_exists('jdate') || function_exists('tr_num');
-                if ( $has_conflict ) {
-                        // فقط هشدار بده تا مدیر در جریان باشد، اما قابلیت را غیرفعال نکن.
-                        set_transient( 'vardi_kit_shamsi_conflict_notice', 1, DAY_IN_SECONDS );
+                $mode = $this->options['shamsi_date_conflict_mode'] ?? 'auto';
+                $conflicts = [];
+                if ( function_exists( 'wp_is_jalali' ) ) { $conflicts[] = 'wp_is_jalali'; }
+                if ( class_exists( 'parsidate' ) ) { $conflicts[] = 'parsidate'; }
+                if ( function_exists( 'jdate' ) ) { $conflicts[] = 'jdate'; }
+                if ( has_filter( 'date_i18n', 'jdate' ) || has_filter( 'wp_date', 'jdate' ) ) { $conflicts[] = 'jdate filters'; }
+                if ( function_exists( 'tr_num' ) ) { $conflicts[] = 'tr_num'; }
+
+                $has_conflict = ! empty( $conflicts );
+
+                if ( 'disable' === $mode ) {
+                        set_transient( 'vardi_kit_shamsi_conflict_notice', [
+                                'message' => __( 'تبدیل تاریخ شمسی توسط تنظیمات افزونه غیرفعال شده است.', 'vardi-kit' ),
+                                'type'    => 'info',
+                        ], DAY_IN_SECONDS );
+                        return;
+                }
+
+                if ( $has_conflict && 'force' !== $mode ) {
+                        set_transient( 'vardi_kit_shamsi_conflict_notice', [
+                                'message' => sprintf( __( 'تداخل با ارائه‌دهنده تاریخ شمسی (%s) شناسایی شد و برای جلوگیری از تعارض، تبدیل تاریخ توسط Vardi Kit متوقف شد. از تنظیمات می‌توانید آن را مجبور یا غیرفعال کنید.', 'vardi-kit' ), implode( ', ', $conflicts ) ),
+                                'type'    => 'warning',
+                        ], DAY_IN_SECONDS );
+                        return;
+                }
+
+                if ( $has_conflict && 'force' === $mode ) {
+                        set_transient( 'vardi_kit_shamsi_conflict_notice', [
+                                'message' => sprintf( __( 'تداخل با ارائه‌دهنده تاریخ شمسی (%s) شناسایی شد، اما طبق تنظیمات، تبدیل تاریخ Vardi Kit همچنان فعال ماند.', 'vardi-kit' ), implode( ', ', $conflicts ) ),
+                                'type'    => 'info',
+                        ], DAY_IN_SECONDS );
                 }
 
                 if ( ! function_exists( 'jdate' ) && file_exists( VARDI_KIT_PLUGIN_PATH . 'jdf.php' ) ) {
