@@ -47,10 +47,20 @@ class Vardi_Admin_Settings {
         public function show_shamsi_conflict_notice() {
                 if ( ! current_user_can( 'manage_options' ) ) return;
                 if ( ! isset( $_GET['page'] ) || strpos( sanitize_key( $_GET['page'] ), 'vardi-' ) !== 0 ) return;
-                if ( get_transient( 'vardi_kit_shamsi_conflict_notice' ) ) {
-                        echo '<div class="notice notice-warning vardi-kit-notice"><p><strong>Vardi Kit:</strong> قابلیت تاریخ شمسی به دلیل شناسایی افزونه یا کتابخانه‌ی مشابه غیرفعال شد تا از بروز تداخل جلوگیری شود.</p></div>';
-                        delete_transient( 'vardi_kit_shamsi_conflict_notice' );
-                }
+                $notice = get_transient( 'vardi_kit_shamsi_conflict_notice' );
+                if ( ! $notice ) { return; }
+
+                $default_message = __( 'وضعیت تاریخ شمسی نیاز به بررسی دارد.', 'vardi-kit' );
+                $message = is_array( $notice ) && ! empty( $notice['message'] ) ? $notice['message'] : $default_message;
+                $type    = is_array( $notice ) && ! empty( $notice['type'] ) ? $notice['type'] : 'warning';
+
+                printf(
+                        '<div class="notice notice-%1$s vardi-kit-notice"><p><strong>Vardi Kit:</strong> %2$s</p></div>',
+                        esc_attr( $type ),
+                        esc_html( $message )
+                );
+
+                delete_transient( 'vardi_kit_shamsi_conflict_notice' );
         }
 
 	public function add_admin_menu() {
@@ -124,10 +134,19 @@ class Vardi_Admin_Settings {
 	}
 
 	public function settings_init() {
-		register_setting( self::OPTION_GROUP, self::OPTION_NAME, [ $this, 'sanitize_options' ] ); // این تابع مهم است
-		add_settings_section( 'vardi_general_section', null, null, 'vardi_general' );
-		add_settings_field( 'enable_shamsi_date', __( 'فعال‌سازی تاریخ شمسی', 'vardi-kit' ), [ $this, 'render_checkbox_field' ], 'vardi_general', 'vardi_general_section', ['name' => 'enable_shamsi_date', 'label' => 'تمام تاریخ‌های وردپرس (نوشته‌ها، دیدگاه‌ها، ووکامرس و ...) به شمسی تبدیل شوند.'] );
-		add_settings_field( 'admin_footer_text', __( 'متن فوتر پیشخوان', 'vardi-kit' ), [ $this, 'render_text_field' ], 'vardi_general', 'vardi_general_section', ['name' => 'admin_footer_text', 'placeholder' => 'آژانس خلاقیت وردی'] );
+                register_setting( self::OPTION_GROUP, self::OPTION_NAME, [ $this, 'sanitize_options' ] ); // این تابع مهم است
+                add_settings_section( 'vardi_general_section', null, null, 'vardi_general' );
+                add_settings_field( 'enable_shamsi_date', __( 'فعال‌سازی تاریخ شمسی', 'vardi-kit' ), [ $this, 'render_checkbox_field' ], 'vardi_general', 'vardi_general_section', ['name' => 'enable_shamsi_date', 'label' => 'تمام تاریخ‌های وردپرس (نوشته‌ها، دیدگاه‌ها، ووکامرس و ...) به شمسی تبدیل شوند.'] );
+                add_settings_field( 'shamsi_date_conflict_mode', __( 'حالت مدیریت تداخل تاریخ شمسی', 'vardi-kit' ), [ $this, 'render_select_field' ], 'vardi_general', 'vardi_general_section', [
+                        'name'    => 'shamsi_date_conflict_mode',
+                        'options' => [
+                                'auto'    => __( 'تشخیص خودکار و توقف در صورت تداخل', 'vardi-kit' ),
+                                'force'   => __( 'اجبار به تبدیل حتی در صورت تداخل', 'vardi-kit' ),
+                                'disable' => __( 'غیرفعال (عدم تبدیل به شمسی)', 'vardi-kit' ),
+                        ],
+                        'desc'    => __( 'در صورت فعال بودن گزینه بالا، می‌توانید مشخص کنید در صورت وجود افزونه یا کتابخانه تاریخ شمسی دیگر چه اتفاقی بیفتد.', 'vardi-kit' ),
+                ] );
+                add_settings_field( 'admin_footer_text', __( 'متن فوتر پیشخوان', 'vardi-kit' ), [ $this, 'render_text_field' ], 'vardi_general', 'vardi_general_section', ['name' => 'admin_footer_text', 'placeholder' => 'آژانس خلاقیت وردی'] );
 
 		add_settings_section( 'vardi_appearance_section', null, null, 'vardi_appearance' );
 		add_settings_field( 'enable_custom_login', __( 'صفحه ورود سفارشی', 'vardi-kit' ), [ $this, 'render_checkbox_field' ], 'vardi_appearance', 'vardi_appearance_section', ['name' => 'enable_custom_login', 'label' => 'فعال کردن استایل مدرن و لوکس برای صفحه ورود'] );
@@ -408,6 +427,10 @@ class Vardi_Admin_Settings {
                 if ( isset( $new_options['ai_api_key'] ) ) {
                         $new_options['ai_api_key'] = trim( sanitize_text_field( $new_options['ai_api_key'] ) );
                 }
+
+                $allowed_conflict_modes = [ 'auto', 'force', 'disable' ];
+                $mode = $new_options['shamsi_date_conflict_mode'] ?? 'auto';
+                $new_options['shamsi_date_conflict_mode'] = in_array( $mode, $allowed_conflict_modes, true ) ? $mode : 'auto';
 
                 // --- پایان بخش Flush ---
 
