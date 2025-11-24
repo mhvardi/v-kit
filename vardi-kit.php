@@ -106,11 +106,12 @@ final class Vardi_Kit {
 
 	public function on_activation() {
 		// **FIXED**: Corrected syntax from $this. to $this->
-		$this->load_dependencies();
-		// **FIXED**: Corrected syntax from $this. to $this->
-		$this->create_or_update_tables();
-		update_option( 'vardi_kit_db_version', VARDI_KIT_DB_VERSION, 'no' );
-	}
+                $this->load_dependencies();
+                // **FIXED**: Corrected syntax from $this. to $this->
+                $this->create_or_update_tables();
+                update_option( 'vardi_kit_db_version', VARDI_KIT_DB_VERSION, 'no' );
+                delete_option( 'vardi_kit_login_rules_flushed' );
+        }
 
 	public function register_assets() {
 		wp_register_style( 'vardi-kit-seo-box', VARDI_KIT_PLUGIN_URL . 'assets/css/widgets/seo-content-box.css', [], VARDI_KIT_VERSION );

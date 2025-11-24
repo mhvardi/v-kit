@@ -51,24 +51,30 @@ class Vardi_Features {
                 }
 
 		// --- **MODIFIED (LOGIN FIX)**: منطق تغییر آدرس ورود بازبینی شد ---
-		if (!empty($this->login_slug)) {
-			// 1. ثبت قانون بازنویسی (در init اجرا می‌شود تا زود ثبت شود)
-			add_action('init', [$this, 'register_login_rewrite_rule']);
+                if (!empty($this->login_slug)) {
+                        // 1. ثبت قانون بازنویسی (در init اجرا می‌شود تا زود ثبت شود)
+                        add_action('init', [$this, 'register_login_rewrite_rule']);
 
-			// 2. فیلترها برای ساختن URL های جدید
-			add_filter('login_url', [$this, 'filter_login_url'], 10, 2);
-			add_filter('logout_url', [$this, 'filter_logout_url_fix'], 10, 2);
-			add_filter('lostpassword_url', [$this, 'filter_lostpassword_url'], 10, 2);
-			add_filter('register_url', [$this, 'filter_register_url']);
+                        // اطمینان از فلاش شدن قوانین بازنویسی پس از فعال‌سازی/تغییر اسلاگ
+                        add_action('admin_init', [ $this, 'maybe_flush_login_rewrite_rules' ]);
 
-			// 3. فیلتر مهم site_url
-			add_filter('site_url', [$this, 'filter_site_url_for_login_php'], 10, 4);
+                        // 2. فیلترها برای ساختن URL های جدید
+                        add_filter('login_url', [$this, 'filter_login_url'], 10, 2);
+                        add_filter('logout_url', [$this, 'filter_logout_url_fix'], 10, 2);
+                        add_filter('lostpassword_url', [$this, 'filter_lostpassword_url'], 10, 2);
+                        add_filter('register_url', [$this, 'filter_register_url']);
 
-			// 4. مسدود کردن دسترسی مستقیم به wp-login.php (در template_redirect اجرا می‌شود)
-			add_action('template_redirect', [$this, 'block_old_login_access']);
+                        // 3. فیلتر مهم site_url
+                        add_filter('site_url', [$this, 'filter_site_url_for_login_php'], 10, 4);
 
-			// **NEW (LOGIN FIX)**: اطمینان از اینکه wp-admin هم به آدرس جدید هدایت می‌شود
-			add_action('init', [$this, 'redirect_wp_admin_to_new_login']);
+                        // 4. بارگذاری مستقیم wp-login.php بدون وابستگی به Rewrite
+                        add_action( 'parse_request', [ $this, 'maybe_load_login_from_slug' ] );
+
+                        // 4. مسدود کردن دسترسی مستقیم به wp-login.php (در template_redirect اجرا می‌شود)
+                        add_action('template_redirect', [$this, 'block_old_login_access']);
+
+                        // **NEW (LOGIN FIX)**: اطمینان از اینکه wp-admin هم به آدرس جدید هدایت می‌شود
+                        add_action('init', [$this, 'redirect_wp_admin_to_new_login']);
 		}
 		// --- پایان بخش بازنویسی شده ---
 
@@ -574,10 +580,10 @@ class Vardi_Features {
 	/**
 	 * 1. قانون بازنویسی را ثبت می‌کند (در init).
 	 */
-	public function register_login_rewrite_rule() {
-		if (!empty($this->login_slug)) {
-			// قانون اصلی: /my-slug/ به wp-login.php اشاره کند
-			add_rewrite_rule('^' . $this->login_slug . '/?$', 'wp-login.php', 'top');
+        public function register_login_rewrite_rule() {
+                if (!empty($this->login_slug)) {
+                        // قانون اصلی: /my-slug/ به wp-login.php اشاره کند
+                        add_rewrite_rule('^' . $this->login_slug . '/?$', 'wp-login.php', 'top');
 
 			// **NEW**: قوانین اضافی برای اکشن‌های لاگین (مانند register, lostpassword)
 			// اینها تضمین می‌کنند که site.com/my-slug/?action=register کار کند
@@ -589,11 +595,11 @@ class Vardi_Features {
 	 * 2. دسترسی مستقیم به wp-login.php را مسدود می‌کند (در template_redirect).
 	 * این تابع دیرتر اجرا می‌شود و امن‌تر است.
 	 */
-	public function block_old_login_access() {
-		// اگر کاربر لاگین کرده یا در پیشخوان است، کاری نکن
-		if (is_user_logged_in() || is_admin()) {
-			return;
-		}
+        public function block_old_login_access() {
+                // اگر کاربر لاگین کرده یا در پیشخوان است، کاری نکن
+                if (is_user_logged_in() || is_admin()) {
+                        return;
+                }
 
 		// مسیر درخواست فعلی در مرورگر
 		$request_uri_path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
@@ -609,11 +615,11 @@ class Vardi_Features {
 	/**
 	 * **NEW (LOGIN FIX)**: اگر کاربر لاگین نکرده و می‌خواهد وارد wp-admin شود، او را به صفحه لاگین *جدید* هدایت می‌کند.
 	 */
-	public function redirect_wp_admin_to_new_login() {
-		global $pagenow;
-		// اگر کاربر لاگین کرده، یا درخواست AJAX است، یا در حال حاضر در صفحه لاگین هستیم، کاری نکن
-		if (is_user_logged_in() || defined('DOING_AJAX') && DOING_AJAX || $pagenow === 'wp-login.php') {
-			return;
+        public function redirect_wp_admin_to_new_login() {
+                global $pagenow;
+                // اگر کاربر لاگین کرده، یا درخواست AJAX است، یا در حال حاضر در صفحه لاگین هستیم، کاری نکن
+                if (is_user_logged_in() || defined('DOING_AJAX') && DOING_AJAX || $pagenow === 'wp-login.php') {
+                        return;
 		}
 
 		// اگر درخواست برای wp-admin است
@@ -622,8 +628,49 @@ class Vardi_Features {
 			$redirect_url = wp_login_url(admin_url());
 			wp_safe_redirect($redirect_url);
 			exit;
-		}
-	}
+                }
+        }
+
+        /**
+         * بارگذاری wp-login.php برای مسیر سفارشی حتی بدون فعال بودن بازنویسی.
+         */
+        public function maybe_load_login_from_slug( $wp = null ) {
+                if ( empty( $this->login_slug ) ) {
+                        return;
+                }
+
+                $request_path = trim( parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ), '/' );
+
+                if ( $request_path !== $this->login_slug ) {
+                        return;
+                }
+
+                $login_file = ABSPATH . 'wp-login.php';
+
+                if ( file_exists( $login_file ) ) {
+                        require_once $login_file;
+                        exit;
+                }
+
+                wp_safe_redirect( wp_login_url() );
+                exit;
+        }
+
+        /**
+         * فلاش کردن قوانین بازنویسی فقط یک‌بار تا ثبت قانون ورود تضمین شود.
+         */
+        public function maybe_flush_login_rewrite_rules() {
+                if ( empty( $this->login_slug ) ) {
+                        return;
+                }
+
+                if ( get_option( 'vardi_kit_login_rules_flushed' ) ) {
+                        return;
+                }
+
+                flush_rewrite_rules();
+                update_option( 'vardi_kit_login_rules_flushed', 1 );
+        }
 
 
 	/**

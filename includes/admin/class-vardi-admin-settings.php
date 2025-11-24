@@ -335,13 +335,13 @@ class Vardi_Admin_Settings {
 		// آدرس نهایی بر اساس فیلتر login_url ساخته می‌شود (امن‌ترین راه)
 		$login_url = wp_login_url();
 
-		echo "<div>";
-		echo "<input type='text' class='regular-text' id='vardi_kit_change_login_url' name='" . self::OPTION_NAME . "[change_login_url]' value='" . esc_attr($value) . "' placeholder='مثلا: my-login'>";
-		echo "<button type='button' class='button button-secondary' id='vardi_kit_generate_random_url' style='margin-right: 5px;'>ساخت آدرس امن تصادفی</button>";
-		echo "<p class='description'>آدرس ورود نهایی شما: <strong id='vardi_kit_final_login_url' style='direction: ltr; user-select: all;'>" . esc_url($login_url) . "</strong></p>";
-		echo "<p class='description'>مهم: پس از ذخیره، این آدرس را بوکمارک کنید. اگر خالی باشد، از آدرس پیش‌فرض وردپرس (/wp-login.php) استفاده می‌شود.</p>";
-		echo "</div>";
-	}
+                echo "<div>";
+                echo "<input type='text' class='regular-text' id='vardi_kit_change_login_url' name='" . self::OPTION_NAME . "[change_login_url]' value='" . esc_attr($value) . "' placeholder='مثلا: my-login'>";
+                echo "<button type='button' class='button button-secondary' id='vardi_kit_generate_random_url' style='margin-right: 5px;'>ساخت آدرس امن تصادفی</button>";
+                echo "<p class='description'>آدرس ورود نهایی شما: <strong id='vardi_kit_final_login_url' style='direction: ltr; user-select: all;'>" . esc_url($login_url) . "</strong></p>";
+                echo "<p class='description'>مهم: پس از ذخیره، این آدرس را بوکمارک کنید. پس از به‌روزرسانی قوانین بازنویسی (به‌صورت خودکار در پیشخوان)، آدرس جدید فعال می‌شود. اگر خالی باشد، از آدرس پیش‌فرض وردپرس (/wp-login.php) استفاده می‌شود.</p>";
+                echo "</div>";
+        }
 
 
 	/**
@@ -409,11 +409,12 @@ class Vardi_Admin_Settings {
 		$old_slug = $db_options['change_login_url'] ?? '';
 
 		// اسلاگ جدید را از داده‌های *ادغام‌شده* می‌خوانیم و پاکسازی می‌کنیم
-		$new_slug = sanitize_title($new_options['change_login_url'] ?? '');
-		$new_options['change_login_url'] = $new_slug; // مقدار پاکسازی شده را در آرایه نهایی قرار می‌دهیم
+                $new_slug = sanitize_title($new_options['change_login_url'] ?? '');
+                $new_options['change_login_url'] = $new_slug; // مقدار پاکسازی شده را در آرایه نهایی قرار می‌دهیم
 
-		// اگر اسلاگ تغییر کرده بود، قوانین را فلاش کن
+                // اگر اسلاگ تغییر کرده بود، قوانین را فلاش کن
                 if ($old_slug !== $new_slug) {
+                        delete_option( 'vardi_kit_login_rules_flushed' );
                         add_action('shutdown', function() { flush_rewrite_rules(true); });
                 }
 
