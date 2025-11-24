@@ -26,10 +26,12 @@ class Vardi_Features {
 
         private function init_features() {
                 // --- General Features ---
-                if ($this->is_enabled('enable_shamsi_date')) $this->load_shamsi_date();
-		$default_footer = 'آژانس خلاقیت وردی';
-		$footer_text = !empty($this->options['admin_footer_text']) ? $this->options['admin_footer_text'] : $default_footer;
-		add_filter('admin_footer_text', function() use ($footer_text) { return sanitize_text_field($footer_text); });
+                if ( $this->is_enabled( 'enable_shamsi_date' ) ) {
+                        add_action( 'init', [ $this, 'load_shamsi_date' ], 11 );
+                }
+                $default_footer = 'آژانس خلاقیت وردی';
+                $footer_text = !empty($this->options['admin_footer_text']) ? $this->options['admin_footer_text'] : $default_footer;
+                add_filter('admin_footer_text', function() use ($footer_text) { return sanitize_text_field($footer_text); });
 
 		// --- Appearance Features ---
                 if ($this->is_enabled('enable_custom_login')) {
@@ -131,7 +133,19 @@ class Vardi_Features {
                         ], DAY_IN_SECONDS );
                 }
 
-                if ( ! function_exists( 'jdate' ) && file_exists( VARDI_KIT_PLUGIN_PATH . 'jdf.php' ) ) {
+                $theme_jdf_paths = array_filter(
+                        [
+                                trailingslashit( get_stylesheet_directory() ) . 'inc/jdf.php',
+                                trailingslashit( get_template_directory() ) . 'inc/jdf.php',
+                        ],
+                        'file_exists'
+                );
+
+                if ( ! function_exists( 'jdate' ) && ! empty( $theme_jdf_paths ) ) {
+                        require_once reset( $theme_jdf_paths );
+                }
+
+                if ( ! function_exists( 'jdate' ) && empty( $theme_jdf_paths ) && file_exists( VARDI_KIT_PLUGIN_PATH . 'jdf.php' ) ) {
                         require_once VARDI_KIT_PLUGIN_PATH . 'jdf.php';
                 }
 

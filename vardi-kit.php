@@ -20,22 +20,23 @@ define( 'VARDI_KIT_MINIMUM_ELEMENTOR_VERSION', '3.0.0' );
 
 final class Vardi_Kit {
 
-	private static $_instance = null;
+        private static $_instance = null;
 
-	public static function instance() {
-		if ( is_null( self::$_instance ) ) {
-			self::$_instance = new self();
-		}
-		return self::$_instance;
-	}
+        public static function instance() {
+                if ( is_null( self::$_instance ) ) {
+                        self::$_instance = new self();
+                }
+                return self::$_instance;
+        }
 
-	public function __construct() {
-		add_action( 'plugins_loaded', [ $this, 'init' ] );
-		register_activation_hook( __FILE__, [ $this, 'on_activation' ] );
-	}
+        public function __construct() {
+                add_action( 'plugins_loaded', [ $this, 'init' ] );
+                add_action( 'init', [ $this, 'load_textdomain' ] );
+                register_activation_hook( __FILE__, [ $this, 'on_activation' ] );
+        }
 
-	public function init() {
-		// **FIXED**: Corrected syntax from $this. to $this->
+        public function init() {
+                // **FIXED**: Corrected syntax from $this. to $this->
 		$this->load_dependencies();
 
 		if ( get_option( 'vardi_kit_db_version' ) != VARDI_KIT_DB_VERSION ) {
@@ -56,10 +57,14 @@ final class Vardi_Kit {
 		}
 
 		// **FIXED**: Corrected syntax from $this. to $this->
-		if ( $this->is_elementor_compatible() ) {
-			add_action( 'elementor/init', [ $this, 'init_elementor' ] );
-		}
-	}
+                if ( $this->is_elementor_compatible() ) {
+                        add_action( 'elementor/init', [ $this, 'init_elementor' ] );
+                }
+        }
+
+        public function load_textdomain() {
+                load_plugin_textdomain( 'vardi-kit', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
+        }
 
 	private function load_dependencies() {
 		// Main plugin classes
