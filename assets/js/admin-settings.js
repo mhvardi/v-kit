@@ -51,6 +51,95 @@ jQuery(function ($) {
         });
     }
 
+    // Pattern test sender
+    var patternTestForm = $('#vardi-pattern-test-form');
+    if (patternTestForm.length) {
+        var patternTestBtn    = $('#vardi_pattern_test_button');
+        var patternTestStatus = $('#vardi_pattern_test_status');
+        var patternTestRecipient = $('#vardi_pattern_test_recipient');
+        var patternTestPatternId = $('#vardi_pattern_test_pattern_id');
+        var patternTestNonce  = $('#vardi_pattern_test_nonce');
+        var patternFetchNonce = $('#vardi_pattern_test_fetch_nonce');
+        var patternResp       = $('#vardi-pattern-test-response');
+        var patternSpinner    = patternTestBtn.next('.spinner');
+
+        function fillPatternTokens(tokens) {
+            var wrapper = patternTestForm.find('.vardi-token-wrapper');
+            var total   = Math.max( tokens.length, wrapper.find('.vardi-token-row').length );
+            ensureTokenRows(wrapper, total);
+            wrapper.find('.vardi-token-row input').each(function(index) {
+                $(this).val(tokens[index] !== undefined ? tokens[index] : '');
+            });
+        }
+
+        function fetchPatternConfig() {
+            var context = patternTestForm.find('input[name="vardi_pattern_test_context"]:checked').val();
+            var status  = patternTestStatus.val();
+            var nonce   = patternFetchNonce.val();
+            if (!context || !status || !nonce) { return; }
+
+            patternSpinner.addClass('is-active');
+            $.post(ajaxurl, {
+                action: 'vardi_kit_get_status_config',
+                nonce: nonce,
+                context: context,
+                status: status
+            }, function(response) {
+                patternSpinner.removeClass('is-active');
+                if (response && response.success && response.data) {
+                    patternTestPatternId.val(response.data.pattern_id || '');
+                    if (Array.isArray(response.data.tokens)) {
+                        fillPatternTokens(response.data.tokens);
+                    }
+                }
+            }).fail(function() {
+                patternSpinner.removeClass('is-active');
+            });
+        }
+
+        patternTestStatus.on('change', fetchPatternConfig);
+        patternTestForm.find('input[name="vardi_pattern_test_context"]').on('change', fetchPatternConfig);
+        fetchPatternConfig();
+
+        patternTestBtn.on('click', function(e) {
+            e.preventDefault();
+            var btn = $(this);
+            btn.prop('disabled', true);
+            patternResp.removeClass('notice notice-success notice-error').html('');
+            patternSpinner.addClass('is-active');
+
+            var tokens = [];
+            patternTestForm.find('input[name="vardi_pattern_test_tokens[]"]').each(function() {
+                tokens.push($(this).val());
+            });
+
+            var payload = {
+                action: 'vardi_kit_send_pattern_test',
+                nonce: patternTestNonce.val(),
+                context: patternTestForm.find('input[name="vardi_pattern_test_context"]:checked').val(),
+                status: patternTestStatus.val(),
+                recipient: patternTestRecipient.val(),
+                pattern_id: patternTestPatternId.val(),
+                tokens: tokens
+            };
+
+            $.post(ajaxurl, payload, function(response) {
+                btn.prop('disabled', false);
+                patternSpinner.removeClass('is-active');
+                if (response && response.success) {
+                    patternResp.html('<p>' + response.data + '</p>').addClass('notice notice-success');
+                } else {
+                    var msg = response && response.data ? response.data : 'خطای نامشخص هنگام ارسال تست پترن';
+                    patternResp.html('<p>' + msg + '</p>').addClass('notice notice-error');
+                }
+            }).fail(function() {
+                btn.prop('disabled', false);
+                patternSpinner.removeClass('is-active');
+                patternResp.html('<p>خطا در برقراری ارتباط با سرور.</p>').addClass('notice notice-error');
+            });
+        });
+    }
+
     // --- **NEW**: Code for Automatic Pattern Tab (Admin/Customer tabs) ---
     function hydrateStatusCard($card) {
         if ($card.data('hydrated')) { return; }

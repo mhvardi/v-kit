@@ -85,52 +85,79 @@ class Vardi_Woocommerce_SMS {
 	$customer_sender_numbers   = $this->customer_options['customer_sender_numbers'] ?? [];
 	
 	// --- Send to Admin ---
-	if ( in_array( 'admin', $allowed_audiences, true ) ) {
-	$admin_pattern_id        = $this->pattern_options['admin_pattern_id'][ $status_key ] ?? '';
-	$admin_tokens_shortcodes = $this->pattern_options['admin_pattern_tokens'][ $status_key ] ?? [];
-	$admin_mode              = $admin_modes[ $status_key ] ?? ( ! empty( $admin_pattern_id ) ? 'pattern' : 'text' );
-	
-	if ( ! empty( $this->admin_options['enable_admin_sms'] ) && in_array( $full_status_key, $selected_admin_statuses, true ) ) {
-	$admin_phones_raw = $this->admin_options['admin_mobiles'] ?? '';
-	if ( ! empty( $admin_phones_raw ) ) {
-	$admin_phones = array_map( 'trim', explode( ',', $admin_phones_raw ) );
-	if ( 'pattern' === $admin_mode && ! empty( $admin_pattern_id ) ) {
-	$final_tokens = [];
-	foreach ( $admin_tokens_shortcodes as $shortcode ) {
-	$final_tokens[] = $this->process_token_content( $shortcode, $order );
-	}
-	foreach ( $admin_phones as $phone ) {
-	if ( ! empty( $phone ) ) {
-	$response = $this->api->send_pattern( $phone, $admin_pattern_id, $final_tokens );
-	$append_log([
-	'audience'  => 'admin',
-	'mode'      => 'pattern',
-	'recipient' => $phone,
-	'success'   => (bool) ( $response['success'] ?? false ),
-	'message'   => $response['message'] ?? '',
-	]);
-	}
-	}
-	} else {
-	$message_template = $this->admin_options['admin_sms_template'][ $status_key ] ?? '';
-	if ( ! empty( $admin_phones ) && ! empty( $message_template ) ) {
-	$message = $this->process_token_content( $message_template, $order );
-	$sender  = $admin_sender_numbers[ $status_key ] ?? $this->gateway_sender;
-	$response = $this->api->send( $admin_phones, $message, $sender );
-	$append_log([
-	'audience'  => 'admin',
-	'mode'      => 'text',
-	'recipient' => implode( ', ', $admin_phones ),
-	'success'   => (bool) ( $response['success'] ?? false ),
-	'message'   => $response['message'] ?? '',
-	]);
-	}
-	}
-	}
-	}
-	}
-	
-	// --- Send to Customer ---
+        if ( in_array( 'admin', $allowed_audiences, true ) ) {
+        $admin_pattern_id        = $this->pattern_options['admin_pattern_id'][ $status_key ] ?? '';
+        $admin_tokens_shortcodes = $this->pattern_options['admin_pattern_tokens'][ $status_key ] ?? [];
+        $admin_mode              = $admin_modes[ $status_key ] ?? ( ! empty( $admin_pattern_id ) ? 'pattern' : 'text' );
+
+        if ( ! empty( $this->admin_options['enable_admin_sms'] ) && in_array( $full_status_key, $selected_admin_statuses, true ) ) {
+        $admin_phones_raw = $this->admin_options['admin_mobiles'] ?? '';
+        if ( ! empty( $admin_phones_raw ) ) {
+        $admin_phones = array_map( 'trim', explode( ',', $admin_phones_raw ) );
+        if ( 'pattern' === $admin_mode && ! empty( $admin_pattern_id ) ) {
+        $final_tokens = [];
+        foreach ( $admin_tokens_shortcodes as $shortcode ) {
+        $final_tokens[] = $this->process_token_content( $shortcode, $order );
+        }
+        foreach ( $admin_phones as $phone ) {
+        if ( ! empty( $phone ) ) {
+        $response = $this->api->send_pattern( $phone, $admin_pattern_id, $final_tokens );
+        $append_log([
+        'audience'  => 'admin',
+        'mode'      => 'pattern',
+        'recipient' => $phone,
+        'success'   => (bool) ( $response['success'] ?? false ),
+        'message'   => $response['message'] ?? '',
+        ]);
+        }
+        }
+        } else {
+        if ( 'pattern' === $admin_mode && empty( $admin_pattern_id ) ) {
+        $append_log([
+        'audience'  => 'admin',
+        'mode'      => 'pattern',
+        'recipient' => implode( ', ', $admin_phones ),
+        'success'   => false,
+        'message'   => __( 'کد پترن برای مدیر تنظیم نشده است.', 'vardi-kit' ),
+        ]);
+        } else {
+        $message_template = $this->admin_options['admin_sms_template'][ $status_key ] ?? '';
+        if ( ! empty( $admin_phones ) && ! empty( $message_template ) ) {
+        $message = $this->process_token_content( $message_template, $order );
+        $sender  = $admin_sender_numbers[ $status_key ] ?? $this->gateway_sender;
+        $response = $this->api->send( $admin_phones, $message, $sender );
+        $append_log([
+        'audience'  => 'admin',
+        'mode'      => 'text',
+        'recipient' => implode( ', ', $admin_phones ),
+        'success'   => (bool) ( $response['success'] ?? false ),
+        'message'   => $response['message'] ?? '',
+        ]);
+        } elseif ( empty( $message_template ) ) {
+        $append_log([
+        'audience'  => 'admin',
+        'mode'      => 'text',
+        'recipient' => implode( ', ', $admin_phones ),
+        'success'   => false,
+        'message'   => __( 'متن پیامک مدیر برای این وضعیت خالی است.', 'vardi-kit' ),
+        ]);
+        }
+        }
+        }
+        } else {
+        $append_log([
+        'audience'  => 'admin',
+        'mode'      => $admin_mode,
+        'recipient' => '',
+        'success'   => false,
+        'message'   => __( 'شماره‌ای برای مدیران ثبت نشده است.', 'vardi-kit' ),
+        ]);
+        }
+        }
+        }
+        }
+
+        // --- Send to Customer ---
         if ( in_array( 'customer', $allowed_audiences, true ) ) {
         $opt_in_enabled   = ! empty( $this->customer_options['enable_sms_opt_in_checkout'] );
         $customer_opted_in = $order->get_meta( '_sms_opt_in' ) === 'yes';
@@ -141,38 +168,63 @@ class Vardi_Woocommerce_SMS {
         $pattern_id        = $this->pattern_options['customer_pattern_id'][ $status_key ] ?? '';
         $tokens_shortcodes = $this->pattern_options['customer_pattern_tokens'][ $status_key ] ?? [];
         $customer_mode     = $customer_modes[ $status_key ] ?? ( ! empty( $pattern_id ) ? 'pattern' : 'text' );
-	
-	if ( 'pattern' === $customer_mode && ! empty( $pattern_id ) ) {
-	$final_tokens = [];
-	foreach ( $tokens_shortcodes as $shortcode ) {
-	$final_tokens[] = $this->process_token_content( $shortcode, $order );
-	}
-	$response = $this->api->send_pattern( $customer_phone, $pattern_id, $final_tokens );
-	$append_log([
-	'audience'  => 'customer',
-	'mode'      => 'pattern',
-	'recipient' => $customer_phone,
-	'success'   => (bool) ( $response['success'] ?? false ),
-	'message'   => $response['message'] ?? '',
-	]);
-	} else {
-	$message_template = $this->customer_options['customer_sms_template'][ $status_key ] ?? '';
-	if ( ! empty( $message_template ) ) {
-	$message = $this->process_token_content( $message_template, $order );
-	$sender  = $customer_sender_numbers[ $status_key ] ?? $this->gateway_sender;
-	$response = $this->api->send( [ $customer_phone ], $message, $sender );
-	$append_log([
-	'audience'  => 'customer',
-	'mode'      => 'text',
-	'recipient' => $customer_phone,
-	'success'   => (bool) ( $response['success'] ?? false ),
-	'message'   => $response['message'] ?? '',
-	]);
-	}
-	}
-	}
-	}
-	}
+
+        if ( 'pattern' === $customer_mode && ! empty( $pattern_id ) ) {
+        $final_tokens = [];
+        foreach ( $tokens_shortcodes as $shortcode ) {
+        $final_tokens[] = $this->process_token_content( $shortcode, $order );
+        }
+        $response = $this->api->send_pattern( $customer_phone, $pattern_id, $final_tokens );
+        $append_log([
+        'audience'  => 'customer',
+        'mode'      => 'pattern',
+        'recipient' => $customer_phone,
+        'success'   => (bool) ( $response['success'] ?? false ),
+        'message'   => $response['message'] ?? '',
+        ]);
+        } else {
+        $message_template = $this->customer_options['customer_sms_template'][ $status_key ] ?? '';
+        if ( ! empty( $message_template ) ) {
+        $message = $this->process_token_content( $message_template, $order );
+        $sender  = $customer_sender_numbers[ $status_key ] ?? $this->gateway_sender;
+        $response = $this->api->send( [ $customer_phone ], $message, $sender );
+        $append_log([
+        'audience'  => 'customer',
+        'mode'      => 'text',
+        'recipient' => $customer_phone,
+        'success'   => (bool) ( $response['success'] ?? false ),
+        'message'   => $response['message'] ?? '',
+        ]);
+        } else {
+        $append_log([
+        'audience'  => 'customer',
+        'mode'      => 'text',
+        'recipient' => $customer_phone,
+        'success'   => false,
+        'message'   => __( 'متن پیامک کاربر برای این وضعیت خالی است.', 'vardi-kit' ),
+        ]);
+        }
+        } elseif ( 'pattern' === $customer_mode ) {
+        $append_log([
+        'audience'  => 'customer',
+        'mode'      => 'pattern',
+        'recipient' => $customer_phone,
+        'success'   => false,
+        'message'   => __( 'کد پترن کاربر برای این وضعیت تنظیم نشده است.', 'vardi-kit' ),
+        ]);
+        }
+        } else {
+        $append_log([
+        'audience'  => 'customer',
+        'mode'      => $customer_modes[ $status_key ] ?? 'text',
+        'recipient' => '',
+        'success'   => false,
+        'message'   => __( 'شماره موبایل مشتری یافت نشد.', 'vardi-kit' ),
+        ]);
+        }
+        }
+        }
+        }
 	
 	return $logs;
 	}
@@ -265,7 +317,16 @@ class Vardi_Woocommerce_SMS {
                         $candidates[] = $meta_key;
                 }
 
-                foreach ( $candidates as $key ) {
+                // WooCommerce هدرهای آدرس صورتحساب را معمولا با پیشوند _ ذخیره می‌کند؛ در صورت نیاز آنها را هم بررسی می‌کنیم.
+                $underscored_meta = ltrim( $meta_key, '_' );
+                if ( '_billing_phone' !== $meta_key ) {
+                        $candidates[] = '_billing_phone';
+                }
+                if ( '_billing_phone' !== $underscored_meta && $underscored_meta !== $meta_key ) {
+                        $candidates[] = '_' . $underscored_meta;
+                }
+
+                foreach ( array_unique( array_filter( $candidates ) ) as $key ) {
                         $value = (string) $order->get_meta( $key );
                         if ( empty( $value ) ) {
                                 $value = (string) get_post_meta( $order_id, $key, true );
@@ -282,7 +343,7 @@ class Vardi_Woocommerce_SMS {
 
                 $user_id = $order->get_user_id();
                 if ( $user_id ) {
-                        $user_meta_keys = array_unique( array_filter( [ $meta_key, $field_key, 'billing_phone', 'phone' ] ) );
+                        $user_meta_keys = array_unique( array_filter( [ $meta_key, $field_key, '_billing_phone', 'billing_phone', 'phone', 'mobile' ] ) );
                         foreach ( $user_meta_keys as $user_meta_key ) {
                                 $user_phone = get_user_meta( $user_id, $user_meta_key, true );
                                 if ( ! empty( $user_phone ) ) {
@@ -323,6 +384,8 @@ class Vardi_Woocommerce_SMS {
                 if ( $meta_key !== $field_key ) {
                         $order->update_meta_data( $meta_key, $phone_val );
                 }
+                // اطمینان از ذخیره شدن در متای اصلی ووکامرس
+                $order->update_meta_data( '_billing_phone', $phone_val );
 
                 if ( empty( $order->get_billing_phone() ) ) {
                         $order->set_billing_phone( $phone_val );

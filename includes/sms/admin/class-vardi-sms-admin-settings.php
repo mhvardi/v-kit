@@ -13,6 +13,7 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
         public static function init() {
             add_action( 'admin_init', array( __CLASS__, 'register_settings' ) );
             add_action( 'wp_ajax_vardi_kit_send_manual_sms', array( __CLASS__, 'handle_manual_sms_sending' ) );
+            add_action( 'wp_ajax_vardi_kit_send_pattern_test', array( __CLASS__, 'handle_pattern_test' ) );
             add_action( 'wp_ajax_vardi_kit_get_status_config', array( __CLASS__, 'handle_status_fetch' ) );
             add_action( 'admin_notices', array( __CLASS__, 'show_save_notice' ) );
         }
@@ -65,6 +66,43 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
             $result = $api->send( $recipients, $message );
             if ( $result['success'] ) { wp_send_json_success( 'پیامک با موفقیت برای ارسال در صف قرار گرفت. پیام سرور: ' . esc_html($result['message']) );
             } else { wp_send_json_error( 'خطا در ارسال: ' . esc_html($result['message'] ?? 'پاسخ نامشخص از سرور.') ); }
+        }
+
+        public static function handle_pattern_test() {
+            $nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+            if ( ! wp_verify_nonce( $nonce, 'vardi_kit_pattern_test_nonce' ) ) { wp_send_json_error( 'خطای امنیتی.' ); }
+            if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error( 'شما دسترسی لازم برای این کار را ندارید.' ); }
+
+            $context     = isset( $_POST['context'] ) ? sanitize_key( wp_unslash( $_POST['context'] ) ) : '';
+            $status      = isset( $_POST['status'] ) ? sanitize_key( wp_unslash( $_POST['status'] ) ) : '';
+            $recipient   = isset( $_POST['recipient'] ) ? sanitize_text_field( wp_unslash( $_POST['recipient'] ) ) : '';
+            $pattern_id  = isset( $_POST['pattern_id'] ) ? sanitize_text_field( wp_unslash( $_POST['pattern_id'] ) ) : '';
+            $tokens_raw  = isset( $_POST['tokens'] ) && is_array( $_POST['tokens'] ) ? array_map( 'sanitize_text_field', wp_unslash( $_POST['tokens'] ) ) : [];
+
+            if ( empty( $context ) || empty( $status ) ) { wp_send_json_error( 'لطفا نوع پیام و وضعیت را انتخاب کنید.' ); }
+            if ( empty( $recipient ) ) { wp_send_json_error( 'شماره گیرنده را وارد کنید.' ); }
+
+            $pattern_options = get_option( self::OPTION_PATTERN, [] );
+            $pattern_field   = ( 'admin' === $context ) ? 'admin_pattern_id' : 'customer_pattern_id';
+            $tokens_field    = ( 'admin' === $context ) ? 'admin_pattern_tokens' : 'customer_pattern_tokens';
+
+            if ( empty( $pattern_id ) ) {
+                $pattern_id = $pattern_options[ $pattern_field ][ $status ] ?? '';
+            }
+            if ( empty( $tokens_raw ) ) {
+                $tokens_raw = (array) ( $pattern_options[ $tokens_field ][ $status ] ?? [] );
+            }
+
+            if ( empty( $pattern_id ) ) { wp_send_json_error( 'کد پترن برای این وضعیت ثبت نشده است.' ); }
+
+            $api      = new Vardi_SMS_API_Client();
+            $response = $api->send_pattern( $recipient, $pattern_id, $tokens_raw );
+
+            if ( ! empty( $response['success'] ) ) {
+                wp_send_json_success( 'پیامک تست پترن با موفقیت ارسال شد. پاسخ: ' . esc_html( $response['message'] ?? '' ) );
+            }
+
+            wp_send_json_error( 'خطا در ارسال پترن: ' . esc_html( $response['message'] ?? 'پاسخ نامشخص از سرور.' ) );
         }
 
         public static function handle_status_fetch() {
@@ -481,6 +519,7 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
             $customers = self::get_recipients_by_roles( [ 'customer', 'subscriber' ] );
             $staff     = self::get_recipients_by_roles( [ 'administrator', 'shop_manager', 'editor' ] );
             $recent_orders = self::get_recent_order_phones();
+            $order_statuses = self::get_order_status_list();
             ?>
             <style>
                 .vardi-manual-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; align-items: start; }
@@ -491,6 +530,10 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
                 .vardi-manual-grid h4 { margin-top: 0; }
                 .vardi-token-chip { background: #f6f7f7; border: 1px solid #dcdcde; padding: 3px 6px; border-radius: 4px; display: inline-block; margin-left: 4px; }
                 .vardi-manual-actions { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+                .vardi-pattern-test { margin-top: 16px; }
+                .vardi-pattern-test .vardi-token-wrapper { border: 1px dashed #dcdcde; padding: 10px; border-radius: 6px; background: #fbfbfb; }
+                .vardi-pattern-test .vardi-token-row { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }
+                .vardi-pattern-test .vardi-token-row label { min-width: 36px; text-align: center; background: #eef1f4; padding: 4px 6px; border-radius: 4px; font-weight: 600; }
             </style>
             <h3>ارسال پیامک دستی</h3>
             <p>گیرندگان را انتخاب کنید، در صورت نیاز شماره جدید اضافه کنید و سپس پیامک عادی ارسال نمایید.</p>
@@ -562,6 +605,46 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
                     </div>
 
                     <p class="description" style="margin-top: 10px;">گزارش کامل ارسال‌ها از تب «آرشیو پیامک‌ها» قابل مشاهده است.</p>
+                </div>
+                <div class="vardi-card vardi-pattern-test" id="vardi-pattern-test-form">
+                    <h4>تست دستی ارسال پترن</h4>
+                    <p class="description">برای بررسی صحت تنظیمات، پترن مدیر یا کاربر را روی یک شماره تستی ارسال کنید و پاسخ وب‌سرویس را دریافت نمایید.</p>
+                    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                        <label><input type="radio" name="vardi_pattern_test_context" value="admin" checked> پترن مدیر</label>
+                        <label><input type="radio" name="vardi_pattern_test_context" value="customer"> پترن کاربر</label>
+                    </div>
+                    <div style="margin-top:10px;">
+                        <label for="vardi_pattern_test_status"><strong>وضعیت سفارش</strong></label>
+                        <select id="vardi_pattern_test_status" class="regular-text" style="min-width:220px;">
+                            <?php foreach ( $order_statuses as $slug => $label ) : $key = str_replace( 'wc-', '', $slug ); ?>
+                                <option value="<?php echo esc_attr( $key ); ?>"><?php echo esc_html( $label ); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div style="margin-top:10px;">
+                        <label for="vardi_pattern_test_recipient"><strong>شماره گیرنده</strong></label>
+                        <input type="text" id="vardi_pattern_test_recipient" class="regular-text ltr" placeholder="0912...">
+                    </div>
+                    <div style="margin-top:10px;">
+                        <label for="vardi_pattern_test_pattern_id"><strong>کد پترن</strong></label>
+                        <input type="text" id="vardi_pattern_test_pattern_id" class="regular-text ltr" placeholder="OtpId">
+                    </div>
+                    <div style="margin-top:10px;">
+                        <label><strong>توکن‌ها به ترتیب</strong></label>
+                        <div class="vardi-token-wrapper" data-name-base="vardi_pattern_test_tokens[]">
+                            <?php for ( $i = 0; $i < 3; $i++ ) : ?>
+                                <div class="vardi-token-row"><label>{<?php echo esc_html( $i ); ?>}</label><input type="text" class="regular-text" name="vardi_pattern_test_tokens[]" placeholder="مقدار یا شورت‌کد"></div>
+                            <?php endfor; ?>
+                            <button type="button" class="button add-pattern-token-button" data-index="3"><span class="dashicons dashicons-plus-alt"></span> افزودن توکن</button>
+                        </div>
+                    </div>
+                    <div class="vardi-manual-actions">
+                        <?php wp_nonce_field( 'vardi_kit_pattern_test_nonce', 'vardi_pattern_test_nonce' ); ?>
+                        <input type="hidden" id="vardi_pattern_test_fetch_nonce" value="<?php echo esc_attr( wp_create_nonce( 'vardi_kit_status_nonce' ) ); ?>">
+                        <button type="button" id="vardi_pattern_test_button" class="button button-primary">ارسال پیامک تست</button>
+                        <span class="spinner" style="float:none; vertical-align: middle;"></span>
+                    </div>
+                    <div id="vardi-pattern-test-response" style="margin-top:10px;"></div>
                 </div>
             </div>
             <?php
