@@ -19,21 +19,24 @@ class Vardi_Woocommerce_SMS {
 		return self::$_instance;
 	}
 
-	private function __construct() {
+        private function __construct() {
                 $this->gateway_options  = get_option( 'vardi_kit_sms_gateway_options', [] );
                 $this->admin_options    = get_option( 'vardi_kit_sms_admin_options', [] );
                 $this->customer_options = get_option( 'vardi_kit_sms_customer_options', [] );
                 $this->pattern_options  = get_option( 'vardi_kit_sms_pattern_options', [] ); // **NEW**: Load pattern options
                 $this->gateway_sender   = $this->gateway_options['sender_number'] ?? '';
 
-		if ( empty( $this->gateway_options['enable_sms'] ) || empty( $this->gateway_options['api_key'] ) ) {
-			return;
-		}
+                if ( empty( $this->gateway_options['enable_sms'] ) || empty( $this->gateway_options['api_key'] ) ) {
+                        return;
+                }
 
-		$this->api = new Vardi_SMS_API_Client( $this->gateway_options );
+                $this->api = new Vardi_SMS_API_Client( $this->gateway_options );
 
-		add_action( 'woocommerce_order_status_changed', [ $this, 'trigger_sms_on_status_change' ], 10, 4 );
-		add_action( 'woocommerce_checkout_order_processed', [ $this, 'trigger_sms_on_new_order_processed' ], 10, 2 );
+                add_action( 'woocommerce_order_status_changed', [ $this, 'trigger_sms_on_status_change' ], 10, 4 );
+                add_action( 'woocommerce_checkout_order_processed', [ $this, 'trigger_sms_on_new_order_processed' ], 10, 2 );
+                add_filter( 'woocommerce_order_actions', [ $this, 'register_manual_order_actions' ] );
+                add_action( 'woocommerce_order_action_vardi_resend_admin_sms', [ $this, 'handle_resend_admin_sms' ] );
+                add_action( 'woocommerce_order_action_vardi_resend_customer_sms', [ $this, 'handle_resend_customer_sms' ] );
 
 		add_action( 'woocommerce_low_stock', [ $this, 'trigger_low_stock_sms' ] );
 		add_action( 'woocommerce_product_set_stock_status_outofstock', [ $this, 'trigger_out_of_stock_sms' ], 10, 3 );
@@ -52,77 +55,189 @@ class Vardi_Woocommerce_SMS {
 	}
 
 	public function trigger_sms_on_status_change( $order_id, $old_status, $new_status, $order ) {
-		$this->send_order_sms_notifications( $order, $new_status, 'wc-' . $new_status );
+	$this->send_order_sms_notifications( $order, $new_status, 'wc-' . $new_status );
 	}
 
-        private function send_order_sms_notifications( $order, $status_key, $full_status_key ) {
-                if( !$order instanceof WC_Order ) return;
+	private function send_order_sms_notifications( $order, $status_key, $full_status_key, $record_callback = null, $allowed_audiences = [ 'admin', 'customer' ] ) {
+	if ( ! $order instanceof WC_Order ) {
+	return [];
+	}
 
-                $admin_modes              = $this->admin_options['status_modes'] ?? [];
-                $customer_modes           = $this->customer_options['status_modes'] ?? [];
-                $selected_admin_statuses   = $this->admin_options['admin_notif_statuses'] ?? [];
-                $selected_customer_statuses = $this->customer_options['customer_notif_statuses'] ?? [];
-                $admin_sender_numbers      = $this->admin_options['admin_sender_numbers'] ?? [];
-                $customer_sender_numbers   = $this->customer_options['customer_sender_numbers'] ?? [];
+	$logs = [];
+	$append_log = function( $entry ) use ( $record_callback, &$logs ) {
+	$logs[] = $entry;
+	if ( is_callable( $record_callback ) ) {
+	call_user_func( $record_callback, $entry );
+	}
+	};
+	
+	$admin_modes               = $this->admin_options['status_modes'] ?? [];
+	$customer_modes            = $this->customer_options['status_modes'] ?? [];
+	$selected_admin_statuses   = $this->admin_options['admin_notif_statuses'] ?? [];
+	$selected_customer_statuses = $this->customer_options['customer_notif_statuses'] ?? [];
+	$admin_sender_numbers      = $this->admin_options['admin_sender_numbers'] ?? [];
+	$customer_sender_numbers   = $this->customer_options['customer_sender_numbers'] ?? [];
+	
+	// --- Send to Admin ---
+	if ( in_array( 'admin', $allowed_audiences, true ) ) {
+	$admin_pattern_id        = $this->pattern_options['admin_pattern_id'][ $status_key ] ?? '';
+	$admin_tokens_shortcodes = $this->pattern_options['admin_pattern_tokens'][ $status_key ] ?? [];
+	$admin_mode              = $admin_modes[ $status_key ] ?? ( ! empty( $admin_pattern_id ) ? 'pattern' : 'text' );
+	
+	if ( ! empty( $this->admin_options['enable_admin_sms'] ) && in_array( $full_status_key, $selected_admin_statuses, true ) ) {
+	$admin_phones_raw = $this->admin_options['admin_mobiles'] ?? '';
+	if ( ! empty( $admin_phones_raw ) ) {
+	$admin_phones = array_map( 'trim', explode( ',', $admin_phones_raw ) );
+	if ( 'pattern' === $admin_mode && ! empty( $admin_pattern_id ) ) {
+	$final_tokens = [];
+	foreach ( $admin_tokens_shortcodes as $shortcode ) {
+	$final_tokens[] = $this->process_token_content( $shortcode, $order );
+	}
+	foreach ( $admin_phones as $phone ) {
+	if ( ! empty( $phone ) ) {
+	$response = $this->api->send_pattern( $phone, $admin_pattern_id, $final_tokens );
+	$append_log([
+	'audience'  => 'admin',
+	'mode'      => 'pattern',
+	'recipient' => $phone,
+	'success'   => (bool) ( $response['success'] ?? false ),
+	'message'   => $response['message'] ?? '',
+	]);
+	}
+	}
+	} else {
+	$message_template = $this->admin_options['admin_sms_template'][ $status_key ] ?? '';
+	if ( ! empty( $admin_phones ) && ! empty( $message_template ) ) {
+	$message = $this->process_token_content( $message_template, $order );
+	$sender  = $admin_sender_numbers[ $status_key ] ?? $this->gateway_sender;
+	$response = $this->api->send( $admin_phones, $message, $sender );
+	$append_log([
+	'audience'  => 'admin',
+	'mode'      => 'text',
+	'recipient' => implode( ', ', $admin_phones ),
+	'success'   => (bool) ( $response['success'] ?? false ),
+	'message'   => $response['message'] ?? '',
+	]);
+	}
+	}
+	}
+	}
+	}
+	
+	// --- Send to Customer ---
+	if ( in_array( 'customer', $allowed_audiences, true ) ) {
+	$opt_in_enabled   = ! empty( $this->customer_options['enable_sms_opt_in_checkout'] );
+	$customer_opted_in = $order->get_meta( '_sms_opt_in' ) === 'yes';
+	
+	if ( ! empty( $this->customer_options['enable_customer_sms'] ) && ( ! $opt_in_enabled || $customer_opted_in ) && in_array( $full_status_key, $selected_customer_statuses, true ) ) {
+	$customer_phone = $order->get_billing_phone();
+	if ( ! empty( $customer_phone ) ) {
+	$pattern_id        = $this->pattern_options['customer_pattern_id'][ $status_key ] ?? '';
+	$tokens_shortcodes = $this->pattern_options['customer_pattern_tokens'][ $status_key ] ?? [];
+	$customer_mode     = $customer_modes[ $status_key ] ?? ( ! empty( $pattern_id ) ? 'pattern' : 'text' );
+	
+	if ( 'pattern' === $customer_mode && ! empty( $pattern_id ) ) {
+	$final_tokens = [];
+	foreach ( $tokens_shortcodes as $shortcode ) {
+	$final_tokens[] = $this->process_token_content( $shortcode, $order );
+	}
+	$response = $this->api->send_pattern( $customer_phone, $pattern_id, $final_tokens );
+	$append_log([
+	'audience'  => 'customer',
+	'mode'      => 'pattern',
+	'recipient' => $customer_phone,
+	'success'   => (bool) ( $response['success'] ?? false ),
+	'message'   => $response['message'] ?? '',
+	]);
+	} else {
+	$message_template = $this->customer_options['customer_sms_template'][ $status_key ] ?? '';
+	if ( ! empty( $message_template ) ) {
+	$message = $this->process_token_content( $message_template, $order );
+	$sender  = $customer_sender_numbers[ $status_key ] ?? $this->gateway_sender;
+	$response = $this->api->send( [ $customer_phone ], $message, $sender );
+	$append_log([
+	'audience'  => 'customer',
+	'mode'      => 'text',
+	'recipient' => $customer_phone,
+	'success'   => (bool) ( $response['success'] ?? false ),
+	'message'   => $response['message'] ?? '',
+	]);
+	}
+	}
+	}
+	}
+	}
+	
+	return $logs;
+	}
+	
+	public function register_manual_order_actions( $actions ) {
+	$actions['vardi_resend_admin_sms']    = __( 'ارسال مجدد پیامک مدیر', 'vardi-kit' );
+	$actions['vardi_resend_customer_sms'] = __( 'ارسال مجدد پیامک کاربر', 'vardi-kit' );
+	return $actions;
+	}
+	
+	public function handle_resend_admin_sms( $order ) {
+	$this->dispatch_manual_order_sms( $order, [ 'admin' ] );
+	}
+	
+	public function handle_resend_customer_sms( $order ) {
+	$this->dispatch_manual_order_sms( $order, [ 'customer' ] );
+	}
+	
+	private function dispatch_manual_order_sms( $order, $audiences ) {
+	if ( ! $order instanceof WC_Order ) {
+	return;
+	}
+	
+	$status_key      = $order->get_status();
+	$full_status_key = 'wc-' . $status_key;
+	$audiences       = is_array( $audiences ) ? $audiences : [ 'admin', 'customer' ];
+	$status_label    = wc_get_order_status_name( $status_key );
+	
+	$logs = $this->send_order_sms_notifications(
+	$order,
+	$status_key,
+	$full_status_key,
+	function( $entry ) use ( $order, $status_label ) {
+	$this->add_order_note_from_log( $order, $entry, $status_label );
+	},
+	$audiences
+	);
+	
+	if ( empty( $logs ) ) {
+	$order->add_order_note( __( 'هیچ پیامکی ارسال نشد (تنظیمات غیر فعال است یا شماره‌ای موجود نیست).', 'vardi-kit' ) );
+	}
+	}
+	
+	private function add_order_note_from_log( $order, $entry, $status_label ) {
+	$audience_label = $entry['audience'] === 'admin' ? __( 'مدیر', 'vardi-kit' ) : __( 'کاربر', 'vardi-kit' );
+	$recipient      = $entry['recipient'] ?? '';
+	$message        = $entry['message'] ?? '';
+	$mode_label     = $entry['mode'] === 'pattern' ? __( 'پترن', 'vardi-kit' ) : __( 'متن عادی', 'vardi-kit' );
 
-                // --- Send to Admin ---
-                $admin_pattern_id        = $this->pattern_options['admin_pattern_id'][$status_key] ?? '';
-                $admin_tokens_shortcodes = $this->pattern_options['admin_pattern_tokens'][$status_key] ?? [];
-                $admin_mode              = $admin_modes[ $status_key ] ?? ( ! empty( $admin_pattern_id ) ? 'pattern' : 'text' );
+	if ( ! empty( $entry['success'] ) ) {
+	$note = sprintf(
+	__( 'پیامک %1$s (%2$s) برای وضعیت "%3$s" با موفقیت به %4$s ارسال شد. پاسخ: %5$s', 'vardi-kit' ),
+	$audience_label,
+	$mode_label,
+	$status_label,
+	$recipient,
+	$message
+	);
+	} else {
+	$note = sprintf(
+	__( 'خطا در ارسال پیامک %1$s (%2$s) برای وضعیت "%3$s" به %4$s: %5$s', 'vardi-kit' ),
+	$audience_label,
+	$mode_label,
+	$status_label,
+	$recipient,
+	$message
+	);
+	}
 
-                if ( ! empty( $this->admin_options['enable_admin_sms'] ) && in_array( $full_status_key, $selected_admin_statuses, true ) ) {
-                        $admin_phones_raw = $this->admin_options['admin_mobiles'] ?? '';
-                        if ( ! empty( $admin_phones_raw ) ) {
-                                $admin_phones = array_map('trim', explode(',', $admin_phones_raw));
-                                if ( 'pattern' === $admin_mode && ! empty( $admin_pattern_id ) ) {
-                                        $final_tokens = [];
-                                        foreach ($admin_tokens_shortcodes as $shortcode) {
-                                                $final_tokens[] = $this->process_token_content($shortcode, $order);
-                                        }
-                                        foreach ($admin_phones as $phone) {
-                                                if (!empty($phone)) {
-                                                        $this->api->send_pattern($phone, $admin_pattern_id, $final_tokens);
-                                                }
-                                        }
-                                } else {
-                                        $message_template = $this->admin_options['admin_sms_template'][$status_key] ?? '';
-                                        if ( !empty($admin_phones) && !empty($message_template) ) {
-                                                $message = $this->process_token_content($message_template, $order);
-                                                $sender  = $admin_sender_numbers[$status_key] ?? $this->gateway_sender;
-                                                $this->api->send( $admin_phones, $message, $sender );
-                                        }
-                                }
-                        }
-                }
-
-                // --- Send to Customer ---
-                $opt_in_enabled = ! empty($this->customer_options['enable_sms_opt_in_checkout']);
-                $customer_opted_in = $order->get_meta('_sms_opt_in') === 'yes';
-
-                if ( !empty($this->customer_options['enable_customer_sms']) && ( !$opt_in_enabled || $customer_opted_in ) && in_array( $full_status_key, $selected_customer_statuses, true ) ) {
-                        $customer_phone = $order->get_billing_phone();
-                        if ( ! empty( $customer_phone ) ) {
-                                $pattern_id        = $this->pattern_options['customer_pattern_id'][$status_key] ?? '';
-                                $tokens_shortcodes = $this->pattern_options['customer_pattern_tokens'][$status_key] ?? [];
-                                $customer_mode     = $customer_modes[ $status_key ] ?? ( ! empty( $pattern_id ) ? 'pattern' : 'text' );
-
-                                if ( 'pattern' === $customer_mode && ! empty($pattern_id) ) {
-                                        $final_tokens = [];
-                                        foreach ($tokens_shortcodes as $shortcode) {
-                                                $final_tokens[] = $this->process_token_content($shortcode, $order);
-                                        }
-                                        $this->api->send_pattern($customer_phone, $pattern_id, $final_tokens);
-                                } else {
-                                        $message_template = $this->customer_options['customer_sms_template'][$status_key] ?? '';
-                                        if ( ! empty( $message_template ) ) {
-                                                $message = $this->process_token_content($message_template, $order);
-                                                $sender  = $customer_sender_numbers[$status_key] ?? $this->gateway_sender;
-                                                $this->api->send( [$customer_phone], $message, $sender );
-                                        }
-                                }
-                        }
-                }
-        }
+	$order->add_order_note( $note );
+	}
 
 	/**
 	 * **FINAL FIX**: This function is rewritten to correctly process shortcodes.
@@ -259,4 +374,4 @@ class Vardi_Woocommerce_SMS {
 			delete_post_meta( $order_id, '_sms_opt_in' );
 		}
 	}
-} 
+	} 
