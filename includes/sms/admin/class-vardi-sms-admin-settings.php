@@ -211,6 +211,20 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
                             <tr><th scope="row">فعال</th><td><input type="checkbox" name="<?php echo esc_attr( self::OPTION_CUSTOMER ); ?>[enable_customer_sms]" value="1" <?php checked( ! empty( $options['enable_customer_sms'] ) ); ?>><p class="description">در هنگام ثبت یا تغییر وضعیت سفارش، پیامک برای مشتریان ارسال می‌شود.</p></td></tr>
                             <tr><th scope="row">اختیار دریافت پیامک توسط مشتری</th><td><input type="checkbox" name="<?php echo esc_attr( self::OPTION_CUSTOMER ); ?>[enable_sms_opt_in_checkout]" value="1" <?php checked( ! empty( $options['enable_sms_opt_in_checkout'] ) ); ?>><p class="description">نمایش گزینه دریافت پیامک در صفحه پرداخت.</p></td></tr>
                             <tr><th scope="row"><label for="sms_opt_in_checkout_text">متن اطلاع مشتری</label></th><td><input type="text" id="sms_opt_in_checkout_text" name="<?php echo esc_attr( self::OPTION_CUSTOMER ); ?>[sms_opt_in_checkout_text]" value="<?php echo esc_attr( $options['sms_opt_in_checkout_text'] ?? 'مایل هستم از وضعیت سفارش از طریق پیامک آگاه شوم.' ); ?>" class="regular-text"><p class="description">متن کنار چک‌باکس رضایت دریافت پیامک.</p></td></tr>
+                            <tr>
+                                <th scope="row"><label for="vardi_sms_customer_phone_meta_key">کلید فیلد شماره موبایل</label></th>
+                                <td>
+                                    <input type="text" id="vardi_sms_customer_phone_meta_key" name="<?php echo esc_attr( self::OPTION_CUSTOMER ); ?>[customer_phone_meta_key]" value="<?php echo esc_attr( $options['customer_phone_meta_key'] ?? 'billing_phone' ); ?>" class="regular-text ltr">
+                                    <p class="description">در صورتی که فیلد شماره موبایل مشتری با کلید دیگری (مثلاً افزونه دیجیتس یا فیلد سفارشی) ذخیره می‌شود، نام کلید متای سفارش را وارد کنید. مقدار پیش‌فرض <code>billing_phone</code> است.</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row"><label for="vardi_sms_customer_phone_field_key">کلید فیلد در فرم پرداخت</label></th>
+                                <td>
+                                    <input type="text" id="vardi_sms_customer_phone_field_key" name="<?php echo esc_attr( self::OPTION_CUSTOMER ); ?>[customer_phone_field_key]" value="<?php echo esc_attr( $options['customer_phone_field_key'] ?? '' ); ?>" class="regular-text ltr">
+                                    <p class="description">در صورت تفاوت نام فیلد فرم پرداخت با کلید متا، اینجا نام ورودی فرم (مثلاً <code>sellPayPhone</code>) را وارد کنید تا مقدار هنگام ثبت سفارش ذخیره و در پیامک‌ها استفاده شود.</p>
+                                </td>
+                            </tr>
                         </tbody></table>
                     </div>
                 </div>

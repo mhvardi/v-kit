@@ -9,8 +9,10 @@ class Vardi_Woocommerce_SMS {
         private $customer_options;
         private $pattern_options; // **NEW**: Holds pattern settings
         private $gateway_sender = '';
-	public $api;
-	private $shortcode_mappings = [];
+        public $api;
+        private $shortcode_mappings = [];
+        private $customer_phone_meta_key = 'billing_phone';
+        private $customer_phone_field_key = '';
 
 	public static function get_instance() {
 		if ( is_null( self::$_instance ) ) {
@@ -25,6 +27,8 @@ class Vardi_Woocommerce_SMS {
                 $this->customer_options = get_option( 'vardi_kit_sms_customer_options', [] );
                 $this->pattern_options  = get_option( 'vardi_kit_sms_pattern_options', [] ); // **NEW**: Load pattern options
                 $this->gateway_sender   = $this->gateway_options['sender_number'] ?? '';
+                $this->customer_phone_meta_key  = trim( $this->customer_options['customer_phone_meta_key'] ?? 'billing_phone' );
+                $this->customer_phone_field_key = trim( $this->customer_options['customer_phone_field_key'] ?? '' );
 
                 if ( empty( $this->gateway_options['enable_sms'] ) || empty( $this->gateway_options['api_key'] ) ) {
                         return;
@@ -37,6 +41,8 @@ class Vardi_Woocommerce_SMS {
                 add_filter( 'woocommerce_order_actions', [ $this, 'register_manual_order_actions' ] );
                 add_action( 'woocommerce_order_action_vardi_resend_admin_sms', [ $this, 'handle_resend_admin_sms' ] );
                 add_action( 'woocommerce_order_action_vardi_resend_customer_sms', [ $this, 'handle_resend_customer_sms' ] );
+
+                add_action( 'woocommerce_checkout_update_order_meta', [ $this, 'capture_custom_phone_field' ], 5, 2 );
 
 		add_action( 'woocommerce_low_stock', [ $this, 'trigger_low_stock_sms' ] );
 		add_action( 'woocommerce_product_set_stock_status_outofstock', [ $this, 'trigger_out_of_stock_sms' ], 10, 3 );
@@ -58,10 +64,10 @@ class Vardi_Woocommerce_SMS {
 	$this->send_order_sms_notifications( $order, $new_status, 'wc-' . $new_status );
 	}
 
-	private function send_order_sms_notifications( $order, $status_key, $full_status_key, $record_callback = null, $allowed_audiences = [ 'admin', 'customer' ] ) {
-	if ( ! $order instanceof WC_Order ) {
-	return [];
-	}
+        private function send_order_sms_notifications( $order, $status_key, $full_status_key, $record_callback = null, $allowed_audiences = [ 'admin', 'customer' ] ) {
+        if ( ! $order instanceof WC_Order ) {
+        return [];
+        }
 
 	$logs = [];
 	$append_log = function( $entry ) use ( $record_callback, &$logs ) {
@@ -125,16 +131,16 @@ class Vardi_Woocommerce_SMS {
 	}
 	
 	// --- Send to Customer ---
-	if ( in_array( 'customer', $allowed_audiences, true ) ) {
-	$opt_in_enabled   = ! empty( $this->customer_options['enable_sms_opt_in_checkout'] );
-	$customer_opted_in = $order->get_meta( '_sms_opt_in' ) === 'yes';
-	
-	if ( ! empty( $this->customer_options['enable_customer_sms'] ) && ( ! $opt_in_enabled || $customer_opted_in ) && in_array( $full_status_key, $selected_customer_statuses, true ) ) {
-	$customer_phone = $order->get_billing_phone();
-	if ( ! empty( $customer_phone ) ) {
-	$pattern_id        = $this->pattern_options['customer_pattern_id'][ $status_key ] ?? '';
-	$tokens_shortcodes = $this->pattern_options['customer_pattern_tokens'][ $status_key ] ?? [];
-	$customer_mode     = $customer_modes[ $status_key ] ?? ( ! empty( $pattern_id ) ? 'pattern' : 'text' );
+        if ( in_array( 'customer', $allowed_audiences, true ) ) {
+        $opt_in_enabled   = ! empty( $this->customer_options['enable_sms_opt_in_checkout'] );
+        $customer_opted_in = $order->get_meta( '_sms_opt_in' ) === 'yes';
+
+        if ( ! empty( $this->customer_options['enable_customer_sms'] ) && ( ! $opt_in_enabled || $customer_opted_in ) && in_array( $full_status_key, $selected_customer_statuses, true ) ) {
+        $customer_phone = $this->get_order_customer_phone( $order );
+        if ( ! empty( $customer_phone ) ) {
+        $pattern_id        = $this->pattern_options['customer_pattern_id'][ $status_key ] ?? '';
+        $tokens_shortcodes = $this->pattern_options['customer_pattern_tokens'][ $status_key ] ?? [];
+        $customer_mode     = $customer_modes[ $status_key ] ?? ( ! empty( $pattern_id ) ? 'pattern' : 'text' );
 	
 	if ( 'pattern' === $customer_mode && ! empty( $pattern_id ) ) {
 	$final_tokens = [];
@@ -210,11 +216,11 @@ class Vardi_Woocommerce_SMS {
 	}
 	}
 	
-	private function add_order_note_from_log( $order, $entry, $status_label ) {
-	$audience_label = $entry['audience'] === 'admin' ? __( 'مدیر', 'vardi-kit' ) : __( 'کاربر', 'vardi-kit' );
-	$recipient      = $entry['recipient'] ?? '';
-	$message        = $entry['message'] ?? '';
-	$mode_label     = $entry['mode'] === 'pattern' ? __( 'پترن', 'vardi-kit' ) : __( 'متن عادی', 'vardi-kit' );
+        private function add_order_note_from_log( $order, $entry, $status_label ) {
+        $audience_label = $entry['audience'] === 'admin' ? __( 'مدیر', 'vardi-kit' ) : __( 'کاربر', 'vardi-kit' );
+        $recipient      = $entry['recipient'] ?? '';
+        $message        = $entry['message'] ?? '';
+        $mode_label     = $entry['mode'] === 'pattern' ? __( 'پترن', 'vardi-kit' ) : __( 'متن عادی', 'vardi-kit' );
 
 	if ( ! empty( $entry['success'] ) ) {
 	$note = sprintf(
@@ -236,8 +242,94 @@ class Vardi_Woocommerce_SMS {
 	);
 	}
 
-	$order->add_order_note( $note );
-	}
+        $order->add_order_note( $note );
+        }
+
+        /**
+         * Retrieve customer phone from configurable order meta or fallbacks.
+         */
+        private function get_order_customer_phone( $order ) {
+                if ( ! $order instanceof WC_Order ) {
+                        return '';
+                }
+
+                $meta_key  = $this->customer_phone_meta_key ?: 'billing_phone';
+                $field_key = $this->customer_phone_field_key;
+                $order_id  = $order->get_id();
+
+                $candidates = [];
+                if ( ! empty( $field_key ) ) {
+                        $candidates[] = $field_key;
+                }
+                if ( ! empty( $meta_key ) && $meta_key !== $field_key ) {
+                        $candidates[] = $meta_key;
+                }
+
+                foreach ( $candidates as $key ) {
+                        $value = (string) $order->get_meta( $key );
+                        if ( empty( $value ) ) {
+                                $value = (string) get_post_meta( $order_id, $key, true );
+                        }
+                        if ( ! empty( $value ) ) {
+                                return trim( $value );
+                        }
+                }
+
+                $billing_phone = $order->get_billing_phone();
+                if ( ! empty( $billing_phone ) ) {
+                        return trim( $billing_phone );
+                }
+
+                $user_id = $order->get_user_id();
+                if ( $user_id ) {
+                        $user_meta_keys = array_unique( array_filter( [ $meta_key, $field_key, 'billing_phone', 'phone' ] ) );
+                        foreach ( $user_meta_keys as $user_meta_key ) {
+                                $user_phone = get_user_meta( $user_id, $user_meta_key, true );
+                                if ( ! empty( $user_phone ) ) {
+                                        return trim( (string) $user_phone );
+                                }
+                        }
+                }
+
+                return '';
+        }
+
+        /**
+         * Save custom phone field into order meta on checkout.
+         */
+        public function capture_custom_phone_field( $order_id, $data ) {
+                $order = wc_get_order( $order_id );
+                if ( ! $order instanceof WC_Order ) {
+                        return;
+                }
+
+                $meta_key  = $this->customer_phone_meta_key ?: 'billing_phone';
+                $field_key = $this->customer_phone_field_key ?: $meta_key;
+                $phone_val = '';
+
+                if ( ! empty( $field_key ) && isset( $_POST[ $field_key ] ) ) {
+                        $phone_val = wc_clean( wp_unslash( $_POST[ $field_key ] ) );
+                } elseif ( ! empty( $meta_key ) && isset( $_POST[ $meta_key ] ) ) {
+                        $phone_val = wc_clean( wp_unslash( $_POST[ $meta_key ] ) );
+                } elseif ( is_array( $data ) && isset( $data[ $field_key ] ) ) {
+                        $phone_val = wc_clean( $data[ $field_key ] );
+                }
+
+                if ( empty( $phone_val ) ) {
+                        return;
+                }
+
+                $order->update_meta_data( $field_key, $phone_val );
+                if ( $meta_key !== $field_key ) {
+                        $order->update_meta_data( $meta_key, $phone_val );
+                }
+
+                if ( empty( $order->get_billing_phone() ) ) {
+                        $order->set_billing_phone( $phone_val );
+                }
+
+                $order->save();
+        }
 
 	/**
 	 * **FINAL FIX**: This function is rewritten to correctly process shortcodes.
@@ -245,10 +337,10 @@ class Vardi_Woocommerce_SMS {
 	 * Returns an empty string if the input is empty or only whitespace.
 	 * Returns an empty string if a single shortcode is not found (to prevent sending "{invalid_code}").
 	 */
-	private function process_token_content( $content, $order ) {
-		if ( ! $order instanceof WC_Order ) {
-			return ''; // Return empty string if order is invalid
-		}
+        private function process_token_content( $content, $order ) {
+                if ( ! $order instanceof WC_Order ) {
+                        return ''; // Return empty string if order is invalid
+                }
 
 		$trimmed_content = trim($content ?? ''); // Ensure content is a string and trim whitespace
 
@@ -258,9 +350,9 @@ class Vardi_Woocommerce_SMS {
 
 		// Generate or retrieve mappings for the current order
 		$order_id = $order->get_id();
-		if (!isset($this->shortcode_mappings[$order_id])) {
-			$this->shortcode_mappings[$order_id] = $this->get_shortcode_mappings($order);
-		}
+                if (!isset($this->shortcode_mappings[$order_id])) {
+                        $this->shortcode_mappings[$order_id] = $this->get_shortcode_mappings($order);
+                }
 		$mappings = $this->shortcode_mappings[$order_id];
 
 		// Check if the content IS EXACTLY a single shortcode like {name}
@@ -298,12 +390,12 @@ class Vardi_Woocommerce_SMS {
 		$shipping_state = $order->get_shipping_state();
 
 		return [
-			'{order_id}'         => $order->get_id(),
-			'{name}'             => $order->get_billing_first_name(),
-			'{last_name}'        => $order->get_billing_last_name(),
-			'{mobile}'           => $order->get_billing_phone(),
-			'{email}'            => $order->get_billing_email(),
-			'{status}'           => wc_get_order_status_name( $order->get_status() ),
+                        '{order_id}'         => $order->get_id(),
+                        '{name}'             => $order->get_billing_first_name(),
+                        '{last_name}'        => $order->get_billing_last_name(),
+                        '{mobile}'           => $this->get_order_customer_phone( $order ),
+                        '{email}'            => $order->get_billing_email(),
+                        '{status}'           => wc_get_order_status_name( $order->get_status() ),
 			'{all_items_qty}'    => implode( ' | ', $all_items_qty ),
 			'{all_items}'        => implode( '، ', $all_items ),
 			'{price}'            => wp_strip_all_tags( wc_price( $order->get_total() ) ),
