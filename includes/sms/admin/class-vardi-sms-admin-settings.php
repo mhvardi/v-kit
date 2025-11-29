@@ -27,10 +27,41 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
         public static function register_settings() {
             register_setting( 'vardi_kit_sms_gateway_group', self::OPTION_GATEWAY );
             register_setting( 'vardi_kit_sms_admin_group', self::OPTION_ADMIN );
-            register_setting( 'vardi_kit_sms_admin_group', self::OPTION_PATTERN );
+            register_setting( 'vardi_kit_sms_admin_group', self::OPTION_PATTERN, [ 'sanitize_callback' => [ __CLASS__, 'sanitize_pattern_options' ] ] );
             register_setting( 'vardi_kit_sms_customer_group', self::OPTION_CUSTOMER );
-            register_setting( 'vardi_kit_sms_customer_group', self::OPTION_PATTERN );
-            register_setting( 'vardi_kit_sms_pattern_group', self::OPTION_PATTERN );
+            register_setting( 'vardi_kit_sms_customer_group', self::OPTION_PATTERN, [ 'sanitize_callback' => [ __CLASS__, 'sanitize_pattern_options' ] ] );
+            register_setting( 'vardi_kit_sms_pattern_group', self::OPTION_PATTERN, [ 'sanitize_callback' => [ __CLASS__, 'sanitize_pattern_options' ] ] );
+        }
+
+        /**
+         * از بین نرفتن تنظیمات پترن بین تب‌ها و پاکسازی داده‌ها
+         */
+        public static function sanitize_pattern_options( $input ) {
+            $existing = get_option( self::OPTION_PATTERN, [] );
+
+            if ( ! is_array( $input ) ) {
+                return $existing;
+            }
+
+            $clean = [];
+
+            foreach ( $input as $field => $statuses ) {
+                if ( ! is_array( $statuses ) ) {
+                    continue;
+                }
+
+                foreach ( $statuses as $status_key => $value ) {
+                    $safe_key = sanitize_key( $status_key );
+
+                    if ( false !== strpos( (string) $field, 'tokens' ) ) {
+                        $clean[ $field ][ $safe_key ] = array_map( 'sanitize_text_field', array_values( (array) $value ) );
+                    } else {
+                        $clean[ $field ][ $safe_key ] = sanitize_text_field( $value );
+                    }
+                }
+            }
+
+            return array_replace_recursive( $existing, $clean );
         }
 
         public static function handle_manual_sms_sending() {
@@ -97,6 +128,14 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
 
             $api      = new Vardi_SMS_API_Client();
             $response = $api->send_pattern( $recipient, $pattern_id, $tokens_raw );
+
+            if ( function_exists( 'wc_get_logger' ) ) {
+                $logger = wc_get_logger();
+                $logger->info(
+                    sprintf( 'Pattern test (%s/%s) to %s: %s', $context, $status, $recipient, $response['message'] ?? '—' ),
+                    [ 'source' => 'vardi-kit-sms' ]
+                );
+            }
 
             if ( ! empty( $response['success'] ) ) {
                 wp_send_json_success( 'پیامک تست پترن با موفقیت ارسال شد. پاسخ: ' . esc_html( $response['message'] ?? '' ) );
