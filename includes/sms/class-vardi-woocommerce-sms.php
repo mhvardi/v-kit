@@ -39,6 +39,7 @@ class Vardi_Woocommerce_SMS {
                 $this->api = new Vardi_SMS_API_Client( $this->gateway_options );
 
                 add_action( 'wp_dashboard_setup', [ $this, 'register_sms_credit_widget' ] );
+                add_action( 'admin_notices', [ $this, 'maybe_render_low_credit_notice' ] );
                 add_action( 'woocommerce_order_status_changed', [ $this, 'trigger_sms_on_status_change' ], 10, 4 );
                 add_action( 'woocommerce_checkout_order_processed', [ $this, 'trigger_sms_on_new_order_processed' ], 10, 2 );
                 add_filter( 'woocommerce_order_actions', [ $this, 'register_manual_order_actions' ] );
@@ -56,78 +57,128 @@ class Vardi_Woocommerce_SMS {
                 }
         }
 
-        public function register_sms_credit_widget() {
-                if ( ! current_user_can( 'manage_options' ) ) {
-                        return;
-                }
+public function register_sms_credit_widget() {
+if ( ! current_user_can( 'manage_options' ) ) {
+return;
+}
 
-                wp_add_dashboard_widget(
-                        'vardi_sms_credit_widget',
-                        __( 'شارژ سامانه پیامک', 'vardi-kit' ),
-                        [ $this, 'render_sms_credit_widget' ]
-                );
-        }
+wp_add_dashboard_widget(
+'vardi_sms_credit_widget',
+__( 'شارژ سامانه پیامک', 'vardi-kit' ),
+[ $this, 'render_sms_credit_widget' ]
+);
+}
 
-        public function render_sms_credit_widget() {
-                if ( ! $this->api ) {
-                        echo '<p>' . esc_html__( 'برای نمایش میزان شارژ، ابتدا وب‌سرویس پیامک را در تنظیمات فعال کنید.', 'vardi-kit' ) . '</p>';
-                        return;
-                }
+public function render_sms_credit_widget() {
+if ( ! $this->api ) {
+echo '<p>' . esc_html__( 'برای نمایش میزان شارژ، ابتدا وب‌سرویس پیامک را در تنظیمات فعال کنید.', 'vardi-kit' ) . '</p>';
+return;
+}
 
-                $credit_info  = $this->api->get_credit();
-                $credit_value = $this->extract_credit_value( $credit_info );
-                $user_id      = $this->resolve_sms_user_id( $credit_info );
-                $recharge_url = $user_id ? 'https://sms.vardi.ir/Payment/PayWithBank?UserId=' . rawurlencode( $user_id ) : '';
+$credit_snapshot = $this->get_credit_snapshot();
+$credit_info     = $credit_snapshot['credit_info'];
+$credit_value    = $credit_snapshot['credit_value'];
+$user_id         = $credit_snapshot['user_id'];
+$recharge_url    = $user_id ? 'https://sms.vardi.ir/Payment/PayWithBank?UserId=' . rawurlencode( $user_id ) : '';
 
-                echo '<div class="vardi-sms-credit">';
+echo '<div class="vardi-sms-credit">';
 
-                if ( ! empty( $credit_info['success'] ) && null !== $credit_value ) {
-                        printf(
-                                '<p><strong>%s</strong> %s</p>',
-                                esc_html( number_format_i18n( $credit_value ) ),
-                                esc_html__( 'ریال اعتبار باقی‌مانده', 'vardi-kit' )
-                        );
-                } else {
-                        echo '<p style="color:#d63638;">' . esc_html__( 'خطا در دریافت اعتبار پنل.', 'vardi-kit' ) . '</p>';
-                        if ( ! empty( $credit_info['message'] ) ) {
-                                echo '<p class="description" style="margin-top:-6px;">' . esc_html( $credit_info['message'] ) . '</p>';
-                        }
-                }
+if ( ! empty( $credit_info['success'] ) && null !== $credit_value ) {
+printf(
+'<p><strong>%s</strong> %s</p>',
+esc_html( number_format_i18n( $credit_value ) ),
+esc_html__( 'ریال اعتبار باقی‌مانده', 'vardi-kit' )
+);
+} else {
+echo '<p style="color:#d63638;">' . esc_html__( 'خطا در دریافت اعتبار پنل.', 'vardi-kit' ) . '</p>';
+if ( ! empty( $credit_info['message'] ) ) {
+echo '<p class="description" style="margin-top:-6px;">' . esc_html( $credit_info['message'] ) . '</p>';
+}
+}
 
-                if ( $recharge_url ) {
-                        printf(
-                                '<p><a class="button button-primary" href="%s" target="_blank" rel="noopener noreferrer">%s</a></p>',
-                                esc_url( $recharge_url ),
-                                esc_html__( 'شارژ مستقیم از درگاه بانکی', 'vardi-kit' )
-                        );
-                } else {
-                        echo '<p class="description">' . esc_html__( 'برای فعال‌سازی لینک شارژ مستقیم، شناسه کاربری (UserId) را در تنظیمات وب‌سرویس وارد کنید.', 'vardi-kit' ) . '</p>';
-                }
+if ( $recharge_url ) {
+printf(
+'<p><a class="button button-primary" href="%s" target="_blank" rel="noopener noreferrer">%s</a></p>',
+esc_url( $recharge_url ),
+esc_html__( 'شارژ مستقیم از درگاه بانکی', 'vardi-kit' )
+);
+} else {
+echo '<p class="description">' . esc_html__( 'برای فعال‌سازی لینک شارژ مستقیم، شناسه کاربری (UserId) را در تنظیمات وب‌سرویس وارد کنید.', 'vardi-kit' ) . '</p>';
+}
 
-                if ( ! empty( $credit_info['data']['result'] ) && is_array( $credit_info['data']['result'] ) ) {
-                        $tariffs = $credit_info['data']['result']['tariffs'] ?? $credit_info['data']['result']['Tariffs'] ?? [];
+if ( ! empty( $credit_info['data']['result'] ) && is_array( $credit_info['data']['result'] ) ) {
+$tariffs = $credit_info['data']['result']['tariffs'] ?? $credit_info['data']['result']['Tariffs'] ?? [];
 
-                        if ( is_array( $tariffs ) && ! empty( $tariffs ) ) {
-                                echo '<hr><p><strong>' . esc_html__( 'جدول تعرفه فعلی', 'vardi-kit' ) . '</strong></p><ul style="margin:0;">';
-                                foreach ( $tariffs as $item ) {
-                                        if ( ! is_array( $item ) ) { continue; }
-                                        $title  = $item['title'] ?? $item['Title'] ?? '';
-                                        $amount = $item['price'] ?? $item['Price'] ?? '';
+if ( is_array( $tariffs ) && ! empty( $tariffs ) ) {
+echo '<hr><p><strong>' . esc_html__( 'جدول تعرفه فعلی', 'vardi-kit' ) . '</strong></p><ul style="margin:0;">';
+foreach ( $tariffs as $item ) {
+if ( ! is_array( $item ) ) { continue; }
+$title  = $item['title'] ?? $item['Title'] ?? '';
+$amount = $item['price'] ?? $item['Price'] ?? '';
 
-                                        if ( empty( $title ) && empty( $amount ) ) { continue; }
+if ( empty( $title ) && empty( $amount ) ) { continue; }
 
-                                        $label = $title ? esc_html( $title ) : '';
-                                        $value = $amount !== '' ? esc_html( number_format_i18n( (int) $amount ) ) . ' ' . esc_html__( 'ریال', 'vardi-kit' ) : '';
-                                        echo '<li style="margin-bottom:4px;">' . $label . ( $value ? ' — ' . $value : '' ) . '</li>';
-                                }
-                                echo '</ul>';
-                        }
-                }
+$label = $title ? esc_html( $title ) : '';
+$value = $amount !== '' ? esc_html( number_format_i18n( (int) $amount ) ) . ' ' . esc_html__( 'ریال', 'vardi-kit' ) : '';
+echo '<li style="margin-bottom:4px;">' . $label . ( $value ? ' — ' . $value : '' ) . '</li>';
+}
+echo '</ul>';
+}
+}
 
-                echo '</div>';
-        }
+echo '</div>';
+}
 
-        private function extract_credit_value( $credit_info ) {
+private function get_credit_snapshot() {
+$cache_key = 'vardi_sms_credit_snapshot';
+$cached    = get_transient( $cache_key );
+
+if ( is_array( $cached ) && array_key_exists( 'credit_value', $cached ) && array_key_exists( 'credit_info', $cached ) ) {
+return $cached;
+}
+
+$credit_info  = $this->api ? $this->api->get_credit() : [];
+$credit_value = $this->extract_credit_value( $credit_info );
+$user_id      = $this->resolve_sms_user_id( $credit_info );
+
+$data = [
+'credit_info'  => $credit_info,
+'credit_value' => $credit_value,
+'user_id'      => $user_id,
+];
+
+set_transient( $cache_key, $data, 10 * MINUTE_IN_SECONDS );
+
+return $data;
+}
+
+public function maybe_render_low_credit_notice() {
+if ( ! current_user_can( 'manage_options' ) || ! is_admin() ) {
+return;
+}
+
+$credit_snapshot = $this->get_credit_snapshot();
+$credit_value    = $credit_snapshot['credit_value'];
+$user_id         = $credit_snapshot['user_id'];
+$threshold       = 200000;
+
+if ( null === $credit_value || $credit_value >= $threshold ) {
+return;
+}
+
+$recharge_url = $user_id
+? 'https://sms.vardi.ir/Payment/PayWithBank?UserId=' . rawurlencode( $user_id )
+: admin_url( 'admin.php?page=vardi-woocommerce-sms' );
+
+$message = sprintf(
+esc_html__( 'میزان شارژ شما %1$s ریال است. جهت شارژ و جلوگیری از اختلال %2$s.', 'vardi-kit' ),
+esc_html( number_format_i18n( $credit_value ) ),
+'<a href="' . esc_url( $recharge_url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'کلیک کنید', 'vardi-kit' ) . '</a>'
+);
+
+echo '<div class="notice notice-error is-dismissible"><p>' . $message . '</p></div>';
+}
+private function extract_credit_value( $credit_info ) {
                 $paths = [
                         [ 'data', 'result', 'credit' ],
                         [ 'data', 'result', 'Credit' ],
