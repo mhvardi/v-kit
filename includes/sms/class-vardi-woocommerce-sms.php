@@ -9,6 +9,7 @@ class Vardi_Woocommerce_SMS {
         private $customer_options;
         private $pattern_options; // **NEW**: Holds pattern settings
         private $gateway_sender = '';
+        private $gateway_user_id = '';
         public $api;
         private $shortcode_mappings = [];
         private $customer_phone_meta_key = 'billing_phone';
@@ -27,6 +28,7 @@ class Vardi_Woocommerce_SMS {
                 $this->customer_options = get_option( 'vardi_kit_sms_customer_options', [] );
                 $this->pattern_options  = get_option( 'vardi_kit_sms_pattern_options', [] ); // **NEW**: Load pattern options
                 $this->gateway_sender   = $this->gateway_options['sender_number'] ?? '';
+                $this->gateway_user_id  = trim( $this->gateway_options['user_id'] ?? '' );
                 $this->customer_phone_meta_key  = trim( $this->customer_options['customer_phone_meta_key'] ?? 'billing_phone' );
                 $this->customer_phone_field_key = trim( $this->customer_options['customer_phone_field_key'] ?? '' );
 
@@ -36,6 +38,7 @@ class Vardi_Woocommerce_SMS {
 
                 $this->api = new Vardi_SMS_API_Client( $this->gateway_options );
 
+                add_action( 'wp_dashboard_setup', [ $this, 'register_sms_credit_widget' ] );
                 add_action( 'woocommerce_order_status_changed', [ $this, 'trigger_sms_on_status_change' ], 10, 4 );
                 add_action( 'woocommerce_checkout_order_processed', [ $this, 'trigger_sms_on_new_order_processed' ], 10, 2 );
                 add_filter( 'woocommerce_order_actions', [ $this, 'register_manual_order_actions' ] );
@@ -50,8 +53,133 @@ class Vardi_Woocommerce_SMS {
 		if ( ! empty( $this->customer_options['enable_sms_opt_in_checkout'] ) ) {
 			add_action( 'woocommerce_after_order_notes', [ $this, 'add_sms_checkout_field' ] );
 			add_action( 'woocommerce_checkout_update_order_meta', [ $this, 'save_sms_checkout_field' ] );
-		}
-	}
+                }
+        }
+
+        public function register_sms_credit_widget() {
+                if ( ! current_user_can( 'manage_options' ) ) {
+                        return;
+                }
+
+                wp_add_dashboard_widget(
+                        'vardi_sms_credit_widget',
+                        __( 'شارژ سامانه پیامک', 'vardi-kit' ),
+                        [ $this, 'render_sms_credit_widget' ]
+                );
+        }
+
+        public function render_sms_credit_widget() {
+                if ( ! $this->api ) {
+                        echo '<p>' . esc_html__( 'برای نمایش میزان شارژ، ابتدا وب‌سرویس پیامک را در تنظیمات فعال کنید.', 'vardi-kit' ) . '</p>';
+                        return;
+                }
+
+                $credit_info  = $this->api->get_credit();
+                $credit_value = $this->extract_credit_value( $credit_info );
+                $user_id      = $this->resolve_sms_user_id( $credit_info );
+                $recharge_url = $user_id ? 'https://sms.vardi.ir/Payment/PayWithBank?UserId=' . rawurlencode( $user_id ) : '';
+
+                echo '<div class="vardi-sms-credit">';
+
+                if ( ! empty( $credit_info['success'] ) && null !== $credit_value ) {
+                        printf(
+                                '<p><strong>%s</strong> %s</p>',
+                                esc_html( number_format_i18n( $credit_value ) ),
+                                esc_html__( 'ریال اعتبار باقی‌مانده', 'vardi-kit' )
+                        );
+                } else {
+                        echo '<p style="color:#d63638;">' . esc_html__( 'خطا در دریافت اعتبار پنل.', 'vardi-kit' ) . '</p>';
+                        if ( ! empty( $credit_info['message'] ) ) {
+                                echo '<p class="description" style="margin-top:-6px;">' . esc_html( $credit_info['message'] ) . '</p>';
+                        }
+                }
+
+                if ( $recharge_url ) {
+                        printf(
+                                '<p><a class="button button-primary" href="%s" target="_blank" rel="noopener noreferrer">%s</a></p>',
+                                esc_url( $recharge_url ),
+                                esc_html__( 'شارژ مستقیم از درگاه بانکی', 'vardi-kit' )
+                        );
+                } else {
+                        echo '<p class="description">' . esc_html__( 'برای فعال‌سازی لینک شارژ مستقیم، شناسه کاربری (UserId) را در تنظیمات وب‌سرویس وارد کنید.', 'vardi-kit' ) . '</p>';
+                }
+
+                if ( ! empty( $credit_info['data']['result'] ) && is_array( $credit_info['data']['result'] ) ) {
+                        $tariffs = $credit_info['data']['result']['tariffs'] ?? $credit_info['data']['result']['Tariffs'] ?? [];
+
+                        if ( is_array( $tariffs ) && ! empty( $tariffs ) ) {
+                                echo '<hr><p><strong>' . esc_html__( 'جدول تعرفه فعلی', 'vardi-kit' ) . '</strong></p><ul style="margin:0;">';
+                                foreach ( $tariffs as $item ) {
+                                        if ( ! is_array( $item ) ) { continue; }
+                                        $title  = $item['title'] ?? $item['Title'] ?? '';
+                                        $amount = $item['price'] ?? $item['Price'] ?? '';
+
+                                        if ( empty( $title ) && empty( $amount ) ) { continue; }
+
+                                        $label = $title ? esc_html( $title ) : '';
+                                        $value = $amount !== '' ? esc_html( number_format_i18n( (int) $amount ) ) . ' ' . esc_html__( 'ریال', 'vardi-kit' ) : '';
+                                        echo '<li style="margin-bottom:4px;">' . $label . ( $value ? ' — ' . $value : '' ) . '</li>';
+                                }
+                                echo '</ul>';
+                        }
+                }
+
+                echo '</div>';
+        }
+
+        private function extract_credit_value( $credit_info ) {
+                $paths = [
+                        [ 'data', 'result', 'credit' ],
+                        [ 'data', 'result', 'Credit' ],
+                ];
+
+                foreach ( $paths as $keys ) {
+                        $value = $credit_info;
+                        foreach ( $keys as $key ) {
+                                if ( is_array( $value ) && array_key_exists( $key, $value ) ) {
+                                        $value = $value[ $key ];
+                                } else {
+                                        $value = null;
+                                        break;
+                                }
+                        }
+
+                        if ( null !== $value ) {
+                                return (int) $value;
+                        }
+                }
+
+                return null;
+        }
+
+        private function resolve_sms_user_id( $credit_info ) {
+                if ( ! empty( $this->gateway_user_id ) ) {
+                        return $this->gateway_user_id;
+                }
+
+                $paths = [
+                        [ 'data', 'result', 'userId' ],
+                        [ 'data', 'result', 'UserId' ],
+                ];
+
+                foreach ( $paths as $keys ) {
+                        $value = $credit_info;
+                        foreach ( $keys as $key ) {
+                                if ( is_array( $value ) && array_key_exists( $key, $value ) ) {
+                                        $value = $value[ $key ];
+                                } else {
+                                        $value = null;
+                                        break;
+                                }
+                        }
+
+                        if ( ! empty( $value ) ) {
+                                return sanitize_text_field( $value );
+                        }
+                }
+
+                return '';
+        }
 
 	public function trigger_sms_on_new_order_processed( $order_id, $posted_data ) {
 		$order = wc_get_order( $order_id );
