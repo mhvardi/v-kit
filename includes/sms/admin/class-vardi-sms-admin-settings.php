@@ -26,7 +26,9 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
         public static function register_settings() {
             register_setting( 'vardi_kit_sms_gateway_group', self::OPTION_GATEWAY );
             register_setting( 'vardi_kit_sms_admin_group', self::OPTION_ADMIN );
+            register_setting( 'vardi_kit_sms_admin_group', self::OPTION_PATTERN );
             register_setting( 'vardi_kit_sms_customer_group', self::OPTION_CUSTOMER );
+            register_setting( 'vardi_kit_sms_customer_group', self::OPTION_PATTERN );
             register_setting( 'vardi_kit_sms_pattern_group', self::OPTION_PATTERN );
         }
 
@@ -181,6 +183,8 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
                     <?php self::render_status_cards( 'admin', $options, $pattern_options, $order_statuses, $sender_number ); ?>
                 </div>
 
+                <?php self::render_pattern_shortcodes_help(); ?>
+
                 <?php submit_button( 'ذخیره تغییرات' ); ?>
             </form>
             <?php
@@ -218,6 +222,8 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
                     <?php self::render_status_cards( 'customer', $options, $pattern_options, $order_statuses, $sender_number ); ?>
                 </div>
 
+                <?php self::render_pattern_shortcodes_help(); ?>
+
                 <?php submit_button( 'ذخیره تغییرات' ); ?>
             </form>
             <?php
@@ -244,8 +250,83 @@ if ( ! class_exists( 'Vardi_SMS_Admin_Settings' ) ) {
                 .vardi-token-row { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }
                 .vardi-token-row label { min-width: 36px; text-align: center; background: #eef1f4; padding: 4px 6px; border-radius: 4px; font-weight: 600; }
                 .vardi-inline-note { font-size: 12px; color: #50575e; margin-top: 6px; display: block; }
+                .vardi-shortcode-help { margin-top: 18px; }
+                .vardi-shortcode-help table code { direction: ltr; font-size: 13px; }
+                .vardi-shortcode-help .vardi-copy-shortcode { white-space: nowrap; }
+                .vardi-shortcode-help .vardi-copy-feedback { color: #198754; font-weight: 600; margin-right: 8px; display: none; }
             </style>
             <?php
+        }
+
+        private static function render_pattern_shortcodes_help() {
+            $shortcodes = self::get_pattern_shortcodes_reference();
+            if ( empty( $shortcodes ) ) {
+                return;
+            }
+            ?>
+            <div class="vardi-shortcode-help">
+                <h4>راهنمای شورت‌کدهای پترن</h4>
+                <p class="description">شورت‌کدهای زیر را در فیلد «توکن‌ها» قرار دهید تا مقادیر سفارش به‌صورت خودکار در الگو جایگزین شوند.</p>
+                <table class="widefat fixed striped">
+                    <thead>
+                        <tr>
+                            <th style="width: 26%;">شورت‌کد</th>
+                            <th>توضیحات</th>
+                            <th style="width: 120px;">عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $shortcodes as $code => $label ) : ?>
+                            <tr>
+                                <td><code class="vardi-shortcode-code"><?php echo esc_html( $code ); ?></code></td>
+                                <td><?php echo esc_html( $label ); ?></td>
+                                <td>
+                                    <span class="vardi-copy-feedback" aria-live="polite"></span>
+                                    <button type="button" class="button button-small vardi-copy-shortcode" data-code="<?php echo esc_attr( $code ); ?>">کپی شورت‌کد</button>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <p class="description">نکته: ترتیب توکن‌ها باید مطابق با ترتیب تعریف‌شده در پنل پیامک شما باشد.</p>
+            </div>
+            <?php
+        }
+
+        private static function get_pattern_shortcodes_reference() {
+            return [
+                '{order_id}'          => 'شناسه سفارش',
+                '{name}'              => 'نام مشتری',
+                '{last_name}'         => 'نام خانوادگی مشتری',
+                '{mobile}'            => 'شماره موبایل خریدار',
+                '{email}'             => 'ایمیل خریدار',
+                '{status}'            => 'نام وضعیت سفارش (مثلاً در حال انجام)',
+                '{all_items_qty}'     => 'لیست محصولات به همراه تعداد',
+                '{all_items}'         => 'لیست نام محصولات سفارش',
+                '{price}'             => 'مبلغ کل سفارش',
+                '{transaction_id}'    => 'شناسه تراکنش پرداخت',
+                '{payment_method}'    => 'روش پرداخت',
+                '{description}'       => 'یادداشت یا توضیح سفارش',
+                '{shipping_method}'   => 'روش ارسال انتخاب‌شده',
+                '{b_company}'         => 'نام شرکت در آدرس صورتحساب',
+                '{b_first_name}'      => 'نام در آدرس صورتحساب',
+                '{b_last_name}'       => 'نام خانوادگی در آدرس صورتحساب',
+                '{b_country}'         => 'کشور صورتحساب',
+                '{b_state}'           => 'استان صورتحساب',
+                '{b_city}'            => 'شهر صورتحساب',
+                '{b_address_1}'       => 'آدرس صورتحساب',
+                '{b_postcode}'        => 'کدپستی صورتحساب',
+                '{s_company}'         => 'نام شرکت در آدرس ارسال',
+                '{s_first_name}'      => 'نام در آدرس ارسال',
+                '{s_last_name}'       => 'نام خانوادگی در آدرس ارسال',
+                '{s_country}'         => 'کشور آدرس ارسال',
+                '{s_state}'           => 'استان آدرس ارسال',
+                '{s_city}'            => 'شهر آدرس ارسال',
+                '{s_address_1}'       => 'آدرس کامل ارسال',
+                '{s_postcode}'        => 'کدپستی آدرس ارسال',
+                '{post_tracking_url}' => 'لینک رهگیری مرسوله',
+                '{post_tracking_code}' => 'کد رهگیری پستی',
+            ];
         }
 
         private static function render_status_cards( $context, $options, $pattern_options, $order_statuses, $sender_number ) {

@@ -219,6 +219,41 @@ jQuery(function ($) {
         btn.data('index', index + 1);
     });
 
+    $('.vardi-shortcode-help').on('click', '.vardi-copy-shortcode', function() {
+        var btn = $(this);
+        var code = btn.data('code');
+        var feedback = btn.siblings('.vardi-copy-feedback');
+
+        var showResult = function(success) {
+            if (feedback.length) {
+                feedback.text(success ? 'کپی شد' : 'خطا در کپی');
+                feedback.stop(true, true).fadeIn(100).delay(1800).fadeOut(180);
+            }
+            if (success) {
+                btn.text('کپی شد!');
+                setTimeout(function() { btn.text('کپی شورت‌کد'); }, 2000);
+            }
+        };
+
+        var fallbackCopy = function(text) {
+            var temp = $('<input>').val(text).appendTo('body');
+            temp[0].select();
+            var copied = document.execCommand('copy');
+            temp.remove();
+            showResult(copied);
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(code).then(function() {
+                showResult(true);
+            }).catch(function() {
+                fallbackCopy(code);
+            });
+        } else {
+            fallbackCopy(code);
+        }
+    });
+
     // --- End of new code ---
 
 
