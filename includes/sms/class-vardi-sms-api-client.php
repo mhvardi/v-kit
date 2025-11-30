@@ -92,17 +92,23 @@ class Vardi_SMS_API_Client {
 	 * @param array $tokens آرایه‌ای از مقادیر نهایی برای جایگزینی در پترن (مثلا ["علی", "12345"])
 	 * @return array پاسخ API
 	 */
-	public function send_pattern($recipient, $pattern_id, $tokens) {
-		// اطمینان از اینکه توکن‌ها همیشه یک آرایه ساده و عددی هستند
-		$token_values = array_values((array) ($tokens ?? []));
+        public function send_pattern($recipient, $pattern_id, $tokens) {
+                // اطمینان از اینکه توکن‌ها همیشه یک آرایه ساده و عددی هستند
+                $token_values = array_values((array) ($tokens ?? []));
 
-		$data = [
-			'OtpId'         => (int)$pattern_id, // کد پترن
-			'MobileNumber'  => $recipient,      // شماره گیرنده
-			'ReplaceToken'  => $token_values,   // آرایه مقادیر جایگزین
-		];
-		return $this->post_request('sendpatternmessage', $data);
-	}
+                $data = [
+                        'OtpId'         => trim((string) $pattern_id), // کد پترن باید بدون دستکاری ارسال شود تا صفرهای ابتدایی از بین نرود
+                        'MobileNumber'  => $recipient,                 // شماره گیرنده
+                        'ReplaceToken'  => $token_values,              // آرایه مقادیر جایگزین
+                ];
+
+                // برخی وب‌سرویس‌ها نیاز دارند خط ارسال‌کننده نیز همراه درخواست پترن ارسال شود
+                if ( ! empty( $this->sender_number ) ) {
+                        $data['SenderNumber'] = $this->sender_number;
+                }
+
+                return $this->post_request('sendpatternmessage', $data);
+        }
 
 	/**
 	 * دریافت اعتبار باقیمانده حساب
