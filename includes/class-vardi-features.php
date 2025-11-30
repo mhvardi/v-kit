@@ -235,24 +235,63 @@ class Vardi_Features {
                 }
         }
 
-	public function custom_login_styles() {
-		$logo_url = $this->options['login_logo_url'] ?? '';
-		if (empty($logo_url) && function_exists('get_custom_logo')) {
-			$custom_logo_id = get_theme_mod('custom_logo');
-			if ($custom_logo_id) $logo_url = wp_get_attachment_image_url($custom_logo_id, 'full');
-		}
-		$logo_url = $logo_url ? esc_url($logo_url) : admin_url('images/w-logo-white.png');
-		echo "<style>
-            body.login { background: #e0e0e0; font-family: 'Peyda', 'IRANSans', sans-serif; }
-            #login { width: 420px !important; padding: 40px 20px !important; background: #e0e0e0; border-radius: 15px; box-shadow: 20px 20px 60px #bebebe, -20px -20px 60px #ffffff; }
-            #login h1 a, .login h1 a { background-image: url('{$logo_url}'); width: 150px; height: 80px; background-size: contain; margin: 0 auto 30px auto; }
-            #loginform { background: transparent; border: none; box-shadow: none; padding: 0; }
-            .login #nav, .login #backtoblog { text-align: center; }
-            #loginform .input, #loginform input[type=text], #loginform input[type=password] { font-family: inherit; border: none !important; border-radius: 8px !important; background: #e0e0e0 !important; box-shadow: inset 5px 5px 10px #bebebe, inset -5px -5px 10px #ffffff !important; color: #555 !important; }
-            #loginform .submit .button-primary { font-family: inherit !important; width: 100% !important; background: #34495e !important; color: #fff !important; border: none !important; border-radius: 8px !important; box-shadow: 5px 5px 10px #bebebe, -5px -5px 10px #ffffff !important; transition: all 0.3s ease !important; }
-            #loginform .submit .button-primary:hover { background: #2c3e50 !important; box-shadow: none !important; }
-        </style>";
-	}
+        public function custom_login_styles() {
+                $font_stack = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'";
+                $custom_font = '';
+
+                if ( ! empty( $this->options['admin_font'] ) ) {
+                        $font_file = $this->options['admin_font'];
+                        $font_url  = VARDI_KIT_PLUGIN_URL . 'fonts/' . $font_file;
+                        $custom_font = "@font-face { font-family: 'VardiAdminFont'; src: url('{$font_url}'); }";
+                        $font_stack = "'VardiAdminFont', {$font_stack}";
+                }
+
+                $logo_url       = '';
+                $custom_logo_id = function_exists( 'get_theme_mod' ) ? get_theme_mod( 'custom_logo' ) : 0;
+                if ( $custom_logo_id ) {
+                        $logo_url = wp_get_attachment_image_url( $custom_logo_id, 'full' );
+                }
+                if ( empty( $logo_url ) && function_exists( 'get_site_icon_url' ) ) {
+                        $logo_url = get_site_icon_url( 512 );
+                }
+                if ( empty( $logo_url ) ) {
+                        $logo_url = includes_url( 'images/wordpress-logo.svg' );
+                }
+                ?>
+                <style type="text/css">
+                        <?php echo $custom_font; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                        body.login div#login h1 a {
+                                background-image: url('<?php echo esc_url( $logo_url ); ?>');
+                        }
+                        .login label {
+                                margin-bottom: 14px !important;
+                        }
+                        .login form {
+                                font-family: <?php echo esc_html( $font_stack ); ?>;
+                                font-weight: 500 !important;
+                                box-shadow: 0px 1.60568px 61.0158px rgba(0, 0, 0, .05) !important;
+                                border-radius: 16px;
+                                border: none !important;
+                        }
+                        .login form .input,
+                        .login form input[type=checkbox],
+                        .login input[type=text] {
+                                border-radius: 8px;
+                                border-color: #ffffff00 !important;
+                                background-color: rgba(0, 0, 0, .04) !important;
+                        }
+                        input#wp-submit {
+                                width: 100%;
+                                border-radius: 8px;
+                                background-color: #5170ff;
+                                border-color: #5170ff;
+                        }
+                        .language-switcher {
+                                display: none;
+                        }
+                </style>
+                <?php
+        }
 
 	public function custom_login_logo_url() { return home_url('/'); }
 	public function custom_login_logo_url_title() { return get_bloginfo('name'); }
